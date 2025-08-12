@@ -1,0 +1,57 @@
+<ui:FluentWindow x:Class="LolManager.Views.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 xmlns:vm="clr-namespace:LolManager.ViewModels"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 mc:Ignorable="d"
+                 Title="LoL Account Manager" Height="520" Width="1300"
+                 MaxWidth="1920"
+                 MinWidth="920"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica"
+                 WindowCornerPreference="Round">
+    <ui:FluentWindow.DataContext>
+        <vm:MainViewModel />
+    </ui:FluentWindow.DataContext>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <!-- TitleBar в первой строке -->
+        <ui:TitleBar Grid.Row="0" Title="LoL Account Manager" />
+        
+        <!-- Controls toolbar -->
+        <StackPanel Grid.Row="0" Margin="8,44,8,8" Orientation="Horizontal">
+            <TextBox Width="260" Padding="10,6" Text="{Binding NewUsername, UpdateSourceTrigger=PropertyChanged}" />
+            <ui:PasswordBox Width="220" Padding="10,6" Margin="6,0,0,0" PasswordChanged="PasswordBox_OnPasswordChanged" />
+            <ui:Button Appearance="Primary" Content="Добавить" Margin="6,0,0,0" Command="{Binding AddAccountCommand}" />
+            <ui:Button Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
+            <ui:Button Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
+            <ui:Button Content="Перезапустить без входа" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
+            <ui:Button Content="Перезайти" Margin="6,0,0,0" Command="{Binding ReLoginCommand}" />
+            <ui:Button Content="Логи" Margin="6,0,0,0" Command="{Binding OpenLogsCommand}" />
+        </StackPanel>
+
+        <ui:Card Grid.Row="1" Margin="8">
+            <Grid>
+                <ui:DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
+                              AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
+                    <ui:DataGrid.Columns>
+                        <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="*"/>
+                        <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt}" Width="200"/>
+                    </ui:DataGrid.Columns>
+                </ui:DataGrid>
+            </Grid>
+        </ui:Card>
+
+        <TextBlock Grid.Row="2" Margin="12" Opacity="0.7" TextWrapping="Wrap">
+            Вход делается через локальный API Riot Client (lockfile). Если включён MFA/капча — потребуется ручное подтверждение.
+        </TextBlock>
+    </Grid>
+</ui:FluentWindow>
+
