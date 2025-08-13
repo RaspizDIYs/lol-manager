@@ -4,54 +4,215 @@
                  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                  xmlns:vm="clr-namespace:LolManager.ViewModels"
+                 xmlns:conv="clr-namespace:LolManager.Converters"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  mc:Ignorable="d"
                  Title="LoL Account Manager" Height="520" Width="1300"
-                 MaxWidth="1920"
+                 MaxWidth="5000"
+                 MaxHeight="5000"
                  MinWidth="920"
+                 MinHeight="520"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica"
+                 WindowBackdropType="None"
                  WindowCornerPreference="Round">
     <ui:FluentWindow.DataContext>
         <vm:MainViewModel />
     </ui:FluentWindow.DataContext>
 
-    <Grid>
+    <ui:FluentWindow.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <conv:IndexToVisibilityConverter x:Key="IndexToVisibility" />
+        <Style x:Key="FadingCard" TargetType="ui:Card">
+            <Setter Property="Opacity" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="Visibility" Value="Visible">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.18"/>
+                                <ThicknessAnimation Storyboard.TargetProperty="Margin" From="8,12,8,8" To="8" Duration="0:0:0.18"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="FadeOnVisibleStack" TargetType="StackPanel">
+            <Setter Property="Opacity" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="Visibility" Value="Visible">
+                    <Trigger.EnterActions>
+                        <BeginStoryboard>
+                            <Storyboard>
+                                <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.15"/>
+                            </Storyboard>
+                        </BeginStoryboard>
+                    </Trigger.EnterActions>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </ui:FluentWindow.Resources>
+
+    <Grid Background="{DynamicResource ApplicationBackgroundBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <!-- TitleBar в первой строке -->
+        <!-- TitleBar -->
         <ui:TitleBar Grid.Row="0" Title="LoL Account Manager" />
-        
-        <!-- Controls toolbar -->
-        <StackPanel Grid.Row="0" Margin="8,44,8,8" Orientation="Horizontal">
-            <TextBox Width="260" Padding="10,6" Text="{Binding NewUsername, UpdateSourceTrigger=PropertyChanged}" />
-            <ui:PasswordBox Width="220" Padding="10,6" Margin="6,0,0,0" PasswordChanged="PasswordBox_OnPasswordChanged" />
-            <ui:Button Appearance="Primary" Content="Добавить" Margin="6,0,0,0" Command="{Binding AddAccountCommand}" />
-            <ui:Button Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
-            <ui:Button Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
-            <ui:Button Content="Перезапустить без входа" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
-            <ui:Button Content="Перезайти" Margin="6,0,0,0" Command="{Binding ReLoginCommand}" />
-            <ui:Button Content="Логи" Margin="6,0,0,0" Command="{Binding OpenLogsCommand}" />
-        </StackPanel>
 
-        <ui:Card Grid.Row="1" Margin="8">
-            <Grid>
-                <ui:DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
-                              AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True">
-                    <ui:DataGrid.Columns>
-                        <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="*"/>
-                        <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt}" Width="200"/>
-                    </ui:DataGrid.Columns>
-                </ui:DataGrid>
-            </Grid>
-        </ui:Card>
+        <!-- Layout: Left Nav + Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Row="2" Margin="12" Opacity="0.7" TextWrapping="Wrap">
-            Вход делается через локальный API Riot Client (lockfile). Если включён MFA/капча — потребуется ручное подтверждение.
-        </TextBlock>
+            <!-- Burger/Navigation -->
+            <Border Background="Transparent" Padding="10,20,2,8" HorizontalAlignment="Center">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Width" Value="180"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsNavExpanded}" Value="True">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Width" To="180" Duration="0:0:0.18"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Width" To="50" Duration="0:0:0.18"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsNavExpanded}" Value="False">
+                                <DataTrigger.EnterActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Width" To="50" Duration="0:0:0.18"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.EnterActions>
+                                <DataTrigger.ExitActions>
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetProperty="Width" To="180" Duration="0:0:0.18"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </DataTrigger.ExitActions>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <!-- Burger -->
+                    <ui:Button Appearance="Transparent"
+                               Command="{Binding ToggleNavCommand}"
+                               ToolTip="Меню" 
+                               HorizontalAlignment="Stretch"
+                               Height="40" 
+                               HorizontalContentAlignment="Left" 
+                               BorderBrush="Transparent">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="Apps32"/>
+                            <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Меню</TextBlock>
+                        </StackPanel>
+                    </ui:Button>
+
+                    <Separator Margin="0,6,0,6"/>
+
+                    <!-- Tabs items -->
+                    <ui:Button Appearance="Transparent" 
+                               Command="{Binding OpenAccountsCommand}"
+                               ToolTip="Аккаунты" Margin="0,10,0,0" 
+                               HorizontalAlignment="Stretch"
+                               Height="40" 
+                               HorizontalContentAlignment="Left"
+                               BorderBrush="Transparent">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="Person32"/>
+                            <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Аккаунты</TextBlock>
+                        </StackPanel>
+                    </ui:Button>
+
+                    <ui:Button Appearance="Transparent"
+                               Command="{Binding OpenSettingsCommand}"
+                               ToolTip="Настройки" Margin="0,10,0,0" 
+                               HorizontalAlignment="Stretch"
+                               Height="40"
+                               HorizontalContentAlignment="Left"
+                               BorderBrush="Transparent">
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="Settings32"/>
+                            <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Настройки</TextBlock>
+                        </StackPanel>
+                    </ui:Button>
+                </StackPanel>
+            </Border>
+
+            <!-- Content -->
+            <ui:Card Grid.Column="1" Background="{DynamicResource ControlFillColorDefaultBrush}" Margin="6" Padding="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" VerticalContentAlignment="Top">
+                <Grid VerticalAlignment="Top">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Top toolbar (only for Accounts tab) -->
+                    <StackPanel Orientation="Horizontal"  VerticalAlignment="Top" Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=0, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadeOnVisibleStack}">
+                        <TextBox Width="260" Padding="10,6" Text="{Binding NewUsername, UpdateSourceTrigger=PropertyChanged}" />
+                        <ui:PasswordBox Width="220" Padding="10,6" Margin="6,0,0,0" PasswordChanged="PasswordBox_OnPasswordChanged" />
+                        <ui:Button Appearance="Primary" Content="Добавить" Margin="6,0,0,0" Command="{Binding AddAccountCommand}" />
+                        <ui:Button Appearance="Secondary" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
+                        <ui:Button Appearance="Info" Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
+                        <ui:Button Content="Перезапустить без входа" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
+                        <ui:Button Content="Перезайти" Margin="6,0,0,0" Command="{Binding ReLoginCommand}" />
+                        <ui:Button Content="Логи" Margin="6,0,0,0" Command="{Binding OpenLogsCommand}" />
+                    </StackPanel>
+
+                    <Grid Grid.Row="1" VerticalAlignment="Stretch" HorizontalAlignment="Stretch">
+                        
+                        <ui:Card Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=0, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadingCard}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <ui:DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
+                                          AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" VerticalAlignment="Stretch"
+                                          GridLinesVisibility="All" HeadersVisibility="Column"
+                                          HorizontalGridLinesBrush="{DynamicResource DataGridDashBrush}"
+                                          VerticalGridLinesBrush="{DynamicResource DataGridDashBrush}">
+                                <ui:DataGrid.Resources>
+                                    <DrawingBrush x:Key="DataGridDashBrush" TileMode="Tile" ViewportUnits="Absolute" Viewport="0,0,6,6" ViewboxUnits="Absolute" Viewbox="0,0,6,6">
+                                        <DrawingBrush.Drawing>
+                                            <GeometryDrawing Brush="{DynamicResource ControlStrokeColorDefaultBrush}">
+                                                <GeometryDrawing.Geometry>
+                                                    <RectangleGeometry Rect="0,0,3,3"/>
+                                                </GeometryDrawing.Geometry>
+                                            </GeometryDrawing>
+                                        </DrawingBrush.Drawing>
+                                    </DrawingBrush>
+                                </ui:DataGrid.Resources>
+                                <ui:DataGrid.Columns>
+                                    <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="*"/>
+                                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt}" Width="200"/>
+                                </ui:DataGrid.Columns>
+                            </ui:DataGrid>
+                        </ui:Card>
+
+                        <ui:Card Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=1, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadingCard}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <StackPanel Orientation="Vertical">
+                                <TextBlock Text="Генерация документации по LCU" Margin="0,0,0,6"/>
+                                <ui:Button Appearance="Primary" Content="Сгенерировать LCU Docs" Command="{Binding GenerateLcuDocsCommand}" />
+                            </StackPanel>
+                        </ui:Card>
+                    </Grid>
+                </Grid>
+            </ui:Card>
+        </Grid>
     </Grid>
 </ui:FluentWindow>
 

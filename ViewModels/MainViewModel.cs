@@ -17,9 +17,14 @@ public partial class MainViewModel : ObservableObject
     private readonly IAccountsStorage _accountsStorage;
     private readonly IRiotClientService _riotClientService;
     private readonly ILogger _logger;
-    private readonly IUiAutomationService _ui;
 
     public ObservableCollection<AccountRecord> Accounts { get; } = new();
+
+	[ObservableProperty]
+	private bool isNavExpanded;
+
+	[ObservableProperty]
+	private int selectedTabIndex;
 
     [ObservableProperty]
     private string newUsername = string.Empty;
@@ -29,21 +34,40 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private AccountRecord? selectedAccount;
 
-    public MainViewModel()
-        : this(new AccountsStorage(), new RiotClientService(), new FileLogger(), new UiAutomationService())
+	public MainViewModel()
+		: this(new AccountsStorage(), new RiotClientService(), new FileLogger())
     {
     }
 
-    public MainViewModel(IAccountsStorage accountsStorage, IRiotClientService riotClientService, ILogger logger, IUiAutomationService ui)
+    public MainViewModel(IAccountsStorage accountsStorage, IRiotClientService riotClientService, ILogger logger)
     {
         _accountsStorage = accountsStorage;
         _riotClientService = riotClientService;
         _logger = logger;
-        _ui = ui;
 
         foreach (var acc in _accountsStorage.LoadAll())
             Accounts.Add(acc);
+
+		SelectedTabIndex = 0;
     }
+
+	[RelayCommand]
+	private void ToggleNav()
+	{
+		IsNavExpanded = !IsNavExpanded;
+	}
+
+	[RelayCommand]
+	private void OpenAccounts()
+	{
+		SelectedTabIndex = 0;
+	}
+
+	[RelayCommand]
+	private void OpenSettings()
+	{
+		SelectedTabIndex = 1;
+	}
 
     [RelayCommand]
     private void AddAccount()
@@ -78,33 +102,10 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            _logger.Info($"Login start for {SelectedAccount.Username}");
-            // 1) Перезапуск Riot Client
-            try { await _riotClientService.RestartRiotClientAsync(); } catch { }
-
-            // 2) Ждём окно RC до 15с без спама
-            var deadline = DateTime.UtcNow.AddSeconds(15);
-            bool focused = false;
-            while (DateTime.UtcNow < deadline)
-            {
-                if (_ui.FocusRiotClient()) { focused = true; break; }
-                await Task.Delay(300);
-            }
-            if (!focused)
-            {
-                _logger.Error("RC window not found within 15s");
-                MessageBox.Show("Не удалось обнаружить окно Riot Client в течение 15с. Откройте его вручную и повторите.");
-                return;
-            }
-
-            // 3) Однократный точный ввод
-            await Task.Delay(400);
-            var ok = _ui.TryLogin(SelectedAccount.Username, password);
-            _logger.Info($"RC UI single attempt executed, result={ok}");
-            if (!ok)
-            {
-                MessageBox.Show("Не удалось ввести логин/пароль автоматически. Попробуйте ещё раз или введите вручную.");
-            }
+            _logger.Info($"LCU login flow start for {SelectedAccount.Username}");
+            try { await _riotClientService.LogoutAsync(); } catch { }
+            try { await _riotClientService.KillLeagueAsync(includeRiotClient: false); } catch { }
+            await _riotClientService.LoginAsync(SelectedAccount.Username, password);
         }
         catch (Exception ex)
         {
@@ -172,6 +173,26 @@ public partial class MainViewModel : ObservableObject
             MessageBox.Show($"Ошибка выхода: {ex.Message}\nЛоги: {_logger.LogFilePath}");
         }
     }
+
+	[RelayCommand]
+	private async Task GenerateLcuDocs()
+	{
+		try
+		{
+			_logger.Info("GenerateLcuDocs requested");
+			var docsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "LCU-Docs");
+			Directory.CreateDirectory(docsDir);
+			var md = Path.Combine(docsDir, "lcu_endpoints.md");
+			var json = Path.Combine(docsDir, "lcu_openapi.json");
+			var count = await _riotClientService.GenerateLcuEndpointsMarkdownAsync(md, json);
+			MessageBox.Show($"Готово: {count} эндпоинтов\n{md}");
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"GenerateLcuDocs error: {ex}");
+			MessageBox.Show($"Ошибка генерации: {ex.Message}\nЛоги: {_logger.LogFilePath}");
+		}
+	}
 }
 
 

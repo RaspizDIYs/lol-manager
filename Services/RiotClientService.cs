@@ -13,6 +13,9 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Net;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Collections.Generic;
 
 namespace LolManager.Services;
 
@@ -27,46 +30,55 @@ public class RiotClientService : IRiotClientService
         _logger = logger;
     }
 
+    public bool IsRiotClientRunning()
+    {
+        try
+        {
+            // Быстрая проверка по процессам и/или RC lockfile
+            if (Process.GetProcessesByName("RiotClientServices").Length > 0) return true;
+            if (Process.GetProcessesByName("Riot Client").Length > 0) return true;
+            try { _ = FindLockfile(product: "RC"); return true; } catch { }
+        }
+        catch { }
+        return false;
+    }
+
     public async Task LoginAsync(string username, string password)
     {
         var swAll = Stopwatch.StartNew();
-        _logger.Info("LoginAsync start (Launch -> LCU login)");
-        // 1) Убедиться, что RC поднят и его lockfile доступен
+        _logger.Info("LoginAsync start (TAB flow in Riot Client)");
+
+        // 1) Убедиться, что RC запущен
         var sw = Stopwatch.StartNew();
+        if (!AreBothRiotProcessesRunning())
+        {
+            _logger.Info("Both RC processes not running. Restarting Riot Client...");
+            await KillRiotClientOnlyAsync();
+            await StartRiotClientAsync();
+            await WaitForBothRiotProcessesAsync(TimeSpan.FromSeconds(25));
+        }
         await WaitForRcLockfileAsync(TimeSpan.FromSeconds(20));
         _logger.Info($"STEP RC_READY in {sw.ElapsedMilliseconds}ms");
 
-        // 2) Поднять LoL через RC и дождаться LCU
+        // 2) Фокус RC окно и выполнить сценарий TAB-ввода
         sw.Restart();
-        var launched = await TryLaunchLeagueViaRiotApiAsync();
-        if (!launched)
-        {
-            _logger.Info("RC API launch failed. Trying RiotClientServices arguments...");
-            launched = await TryLaunchLeagueClientAsync();
-        }
-        _logger.Info($"STEP LAUNCH_DONE in {sw.ElapsedMilliseconds}ms, launched={launched}");
+        bool tabOk = await TryLoginViaTabsAsync(username, password, TimeSpan.FromSeconds(25));
+        _logger.Info($"STEP TAB_INPUT_DONE result={tabOk} in {sw.ElapsedMilliseconds}ms");
 
+        // 3) Дождаться появления LCU после запуска LoL (Space+Enter на тайле)
         sw.Restart();
         var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(45));
-        int relaunches = 0;
-        while (lcu == null && relaunches < 2)
-        {
-            await TryLaunchLeagueClientAsync();
-            await Task.Delay(5000);
-            lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(10));
-            relaunches++;
-        }
         if (lcu == null)
         {
-            _logger.Error("LCU lockfile didn't appear after RC launch attempts");
-            return;
+            _logger.Info("LCU not detected after TAB flow. Trying API/args launch as fallback...");
+            var launched = await TryLaunchLeagueViaRiotApiAsync();
+            if (!launched) launched = await TryLaunchLeagueClientAsync();
+            if (launched)
+            {
+                lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30));
+            }
         }
-        _logger.Info($"STEP LCU_READY in {sw.ElapsedMilliseconds}ms, port={lcu.Port}");
-
-        // 4) Логин в LCU напрямую
-        sw.Restart();
-        await TryLoginViaLeagueClientWithRetries(username, password, maxAttempts: 8, delayMs: 1500);
-        _logger.Info($"STEP LCU_LOGIN_FLOW in {sw.ElapsedMilliseconds}ms, total={swAll.ElapsedMilliseconds}ms");
+        _logger.Info($"STEP LCU_READY={lcu != null} in {sw.ElapsedMilliseconds}ms, total={swAll.ElapsedMilliseconds}ms");
     }
 
     private async Task TryLoginViaLeagueClientWithRetries(string username, string password, int maxAttempts, int delayMs)
@@ -149,7 +161,7 @@ public class RiotClientService : IRiotClientService
             };
             Process.Start(psi);
             _logger.Info($"Started RiotClientServices: {exe}");
-            await WaitForRcLockfileAsync(TimeSpan.FromSeconds(8));
+            await WaitForRcLockfileAsync(TimeSpan.FromSeconds(15));
         }
         catch (Exception ex)
         {
@@ -232,6 +244,174 @@ public class RiotClientService : IRiotClientService
         }
     }
 
+    public async Task<string?> FetchLcuOpenApiAsync(string outputJsonPath)
+    {
+        try
+        {
+            var lcu = FindLockfile(product: "LCU");
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+
+            // Известные места swagger/openapi в LCU:
+            var candidates = new[]
+            {
+                "/swagger/v1/swagger.json",
+                "/swagger/swagger.json",
+                "/openapi.json",
+                "/openapi/v3.json",
+                "/api-docs",
+                "/lol-login/v1/swagger.json",
+                "/lol-summoner/v1/swagger.json"
+            };
+
+            foreach (var path in candidates)
+            {
+                try
+                {
+                    var resp = await client.GetAsync(path);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var body = await resp.Content.ReadAsStringAsync();
+                        if (!string.IsNullOrWhiteSpace(body) && body.TrimStart().StartsWith("{"))
+                        {
+                            Directory.CreateDirectory(Path.GetDirectoryName(outputJsonPath) ?? ".");
+                            await File.WriteAllTextAsync(outputJsonPath, body);
+                            _logger.Info($"Saved LCU OpenAPI from {path} to {outputJsonPath}");
+                            return outputJsonPath;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            // Фоллбек: иногда LCU отдаёт /help HTML со списком роутов
+            try
+            {
+                var help = await client.GetAsync("/help");
+                var helpBody = await help.Content.ReadAsStringAsync();
+                if (!string.IsNullOrWhiteSpace(helpBody))
+                {
+                    var helpPath = Path.ChangeExtension(outputJsonPath, ".help.html");
+                    Directory.CreateDirectory(Path.GetDirectoryName(helpPath) ?? ".");
+                    await File.WriteAllTextAsync(helpPath, helpBody);
+                    _logger.Info($"Saved LCU /help to {helpPath}");
+                }
+            }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"FetchLcuOpenApiAsync error: {ex.Message}");
+        }
+        return null;
+    }
+
+    public async Task<int> GenerateLcuEndpointsMarkdownAsync(string outputMarkdownPath, string? alsoSaveRawJsonTo = null)
+    {
+        string? openApiPath = null;
+        try
+        {
+            if (!string.IsNullOrEmpty(alsoSaveRawJsonTo))
+            {
+                openApiPath = await FetchLcuOpenApiAsync(alsoSaveRawJsonTo);
+            }
+            else
+            {
+                var tmp = Path.Combine(Path.GetTempPath(), "lcu_openapi.json");
+                openApiPath = await FetchLcuOpenApiAsync(tmp);
+            }
+
+            if (openApiPath == null || !File.Exists(openApiPath))
+            {
+                // Падаем в режим грубого парсинга /help
+                return await GenerateFromHelpFallbackAsync(outputMarkdownPath);
+            }
+
+            var json = await File.ReadAllTextAsync(openApiPath);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("paths", out var pathsEl) || pathsEl.ValueKind != JsonValueKind.Object)
+            {
+                return await GenerateFromHelpFallbackAsync(outputMarkdownPath);
+            }
+
+            var lines = new List<string>();
+            lines.Add("# LCU Endpoints\n");
+            int count = 0;
+            foreach (var pathProp in pathsEl.EnumerateObject().OrderBy(p => p.Name))
+            {
+                var path = pathProp.Name;
+                var methodsEl = pathProp.Value;
+                foreach (var methodProp in methodsEl.EnumerateObject())
+                {
+                    var method = methodProp.Name.ToUpperInvariant();
+                    string? summary = null;
+                    if (methodProp.Value.TryGetProperty("summary", out var sum)) summary = sum.GetString();
+                    if (string.IsNullOrWhiteSpace(summary) && methodProp.Value.TryGetProperty("description", out var desc)) summary = desc.GetString();
+
+                    lines.Add($"- {method} {path} — {summary}");
+                    count++;
+                }
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputMarkdownPath) ?? ".");
+            await File.WriteAllLinesAsync(outputMarkdownPath, lines, Encoding.UTF8);
+            _logger.Info($"Generated endpoints markdown to {outputMarkdownPath}, count={count}");
+            return count;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"GenerateLcuEndpointsMarkdownAsync error: {ex.Message}");
+            return 0;
+        }
+    }
+
+    private async Task<int> GenerateFromHelpFallbackAsync(string outputMarkdownPath)
+    {
+        try
+        {
+            var lcu = FindLockfile(product: "LCU");
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            var help = await client.GetAsync("/help");
+            var html = await help.Content.ReadAsStringAsync();
+            Directory.CreateDirectory(Path.GetDirectoryName(outputMarkdownPath) ?? ".");
+
+            // Очень грубый парсинг ссылок вида <a href="GET /lol-...">GET /lol-...</a>
+            var lines = new List<string>();
+            lines.Add("# LCU Endpoints (from /help)\n");
+            int count = 0;
+            foreach (var line in html.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Contains("/lol-") || trimmed.Contains("/rso-") || trimmed.Contains("/riot-"))
+                {
+                    // вытащим метод и путь примитивной эвристикой
+                    var methods = new[] { "GET", "POST", "PUT", "PATCH", "DELETE" };
+                    foreach (var m in methods)
+                    {
+                        var idx = trimmed.IndexOf(m + " ", StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0)
+                        {
+                            var rest = trimmed.Substring(idx);
+                            int end = rest.IndexOf('<');
+                            var token = end > 0 ? rest.Substring(0, end) : rest;
+                            lines.Add("- " + token.Replace("&amp;", "&").Replace("&quot;", "\"").Trim());
+                            count++;
+                            break;
+                        }
+                    }
+                }
+            }
+            await File.WriteAllLinesAsync(outputMarkdownPath, lines, Encoding.UTF8);
+            _logger.Info($"Generated fallback endpoints from /help to {outputMarkdownPath}, count={count}");
+            return count;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"GenerateFromHelpFallbackAsync error: {ex.Message}");
+            return 0;
+        }
+    }
+
 
     private async Task<bool> TryLoginViaLeagueClientAsync(string username, string password)
     {
@@ -278,7 +458,8 @@ public class RiotClientService : IRiotClientService
             try
             {
                 idx++;
-                var respA = await client.PostAsync("/lol-login/v1/session", Json(v));
+                var payload = JsonSerializer.Serialize(v);
+                var respA = await client.PostAsync("/lol-login/v1/session", new StringContent(payload, Encoding.UTF8, "application/json"));
                 await LogResponse($"LCU POST /lol-login/v1/session [v{idx}]", respA);
                 if (respA.IsSuccessStatusCode) return true;
             }
@@ -291,7 +472,8 @@ public class RiotClientService : IRiotClientService
             try
             {
                 idx++;
-                var alt = await client.PutAsync("/rso-auth/v1/session/credentials", Json(v));
+                var payload2 = JsonSerializer.Serialize(v);
+                var alt = await client.PutAsync("/rso-auth/v1/session/credentials", new StringContent(payload2, Encoding.UTF8, "application/json"));
                 await LogResponse($"LCU PUT /rso-auth/v1/session/credentials [v{idx}]", alt);
                 if (alt.IsSuccessStatusCode) return true;
             }
@@ -323,7 +505,8 @@ public class RiotClientService : IRiotClientService
 
             // 2) старый универсальный endpoint (на ряде билдов)
             var oldPayload = new { product = "league_of_legends", patchline = "live", additionalArguments = new[] { "--launch-product=league_of_legends", "--launch-patchline=live" } };
-            var oldResp = await rcClient.PostAsync("/product-launcher/v1/launch", Json(oldPayload));
+            var oldJson = JsonSerializer.Serialize(oldPayload);
+            var oldResp = await rcClient.PostAsync("/product-launcher/v1/launch", new StringContent(oldJson, Encoding.UTF8, "application/json"));
             _logger.Info($"RC POST /product-launcher/v1/launch -> {(int)oldResp.StatusCode} {oldResp.ReasonPhrase}");
             return oldResp.IsSuccessStatusCode;
         }
@@ -334,7 +517,9 @@ public class RiotClientService : IRiotClientService
         }
     }
 
-    // === RSO (Riot Client) авторизация, максимально совместимая с новыми/старыми билд-путями ===
+    // === RSO (Riot Client) авторизация (legacy) ===
+    #region Legacy_RC_RSO_Auth
+    #if false
     private async Task<bool> TryLoginViaRiotClientAsync(string username, string password, int retries)
     {
         try
@@ -492,6 +677,8 @@ public class RiotClientService : IRiotClientService
         catch { }
         return false;
     }
+    #endif
+    #endregion
 
     // Убрано RSO polling чтобы не заспамливать логи
 
@@ -533,6 +720,291 @@ public class RiotClientService : IRiotClientService
             return false;
         }
     }
+
+    // ======== TAB-based RC login/input ========
+    #region TabLogin
+    private async Task<bool> TryLoginViaTabsAsync(string username, string password, TimeSpan overallTimeout)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + overallTimeout;
+            IntPtr hwnd = IntPtr.Zero;
+            for (int i = 0; i < 20 && hwnd == IntPtr.Zero; i++)
+            {
+                hwnd = TryGetRiotClientWindow();
+                if (hwnd == IntPtr.Zero) await Task.Delay(500);
+            }
+            if (hwnd == IntPtr.Zero)
+            {
+                _logger.Error("Riot Client window not found for TAB flow");
+                return false;
+            }
+
+            FocusWindow(hwnd);
+            await Task.Delay(200);
+
+            // Клик в левый верхний угол окна
+            ClickTopLeft(hwnd);
+            await Task.Delay(120);
+
+            // 3x TAB
+            SendTabs(3);
+            await Task.Delay(120);
+
+            // Ввод логина (UNICODE)
+            SendUnicodeText(username);
+            await Task.Delay(120);
+
+            // 1x TAB
+            SendTabs(1);
+            await Task.Delay(120);
+
+            // Ввод пароля (UNICODE)
+            SendUnicodeText(password);
+            await Task.Delay(120);
+
+            // 4x TAB -> фокус на тайле LoL (ожидаемо)
+            SendTabs(4);
+            await Task.Delay(120);
+
+            // Space -> click top-left -> Enter
+            SendVirtualKey(VirtualKey.SPACE);
+            await Task.Delay(120);
+            ClickTopLeft(hwnd);
+            await Task.Delay(120);
+            SendVirtualKey(VirtualKey.RETURN);
+
+            // Немного подождать, пока RC обработает и начнёт запуск
+            while (DateTime.UtcNow < deadline)
+            {
+                // Если появился LCU lockfile, выходим
+                try { var lcu = FindLockfile(product: "LCU"); return true; } catch { }
+                await Task.Delay(500);
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"TryLoginViaTabsAsync error: {ex.Message}");
+            return false;
+        }
+    }
+
+    private IntPtr TryGetRiotClientWindow()
+    {
+        try
+        {
+            var procNames = new[] { "RiotClientUx", "RiotClientUxRender", "Riot Client" };
+            foreach (var name in procNames)
+            {
+                foreach (var p in Process.GetProcessesByName(name))
+                {
+                    if (p.MainWindowHandle != IntPtr.Zero) return p.MainWindowHandle;
+                }
+            }
+        }
+        catch { }
+        return IntPtr.Zero;
+    }
+
+    private void FocusWindow(IntPtr hwnd)
+    {
+        try
+        {
+            ShowWindow(hwnd, ShowWindowCommands.Restore);
+            SetForegroundWindow(hwnd);
+        }
+        catch { }
+    }
+
+    private void ClickTopLeft(IntPtr hwnd)
+    {
+        try
+        {
+            if (!GetWindowRect(hwnd, out var rect))
+            {
+                // Фоллбек: просто в (10,10) экрана
+                SetCursorPos(10, 10);
+                MouseLeftClick();
+                return;
+            }
+            int x = rect.Left + 10;
+            int y = rect.Top + 10;
+            SetCursorPos(x, y);
+            MouseLeftClick();
+        }
+        catch { }
+    }
+
+    private void MouseLeftClick()
+    {
+        var inputs = new INPUT[2];
+        inputs[0] = new INPUT
+        {
+            type = InputType.MOUSE,
+            U = new InputUnion { mi = new MOUSEINPUT { dwFlags = MouseEventFlags.LEFTDOWN } }
+        };
+        inputs[1] = new INPUT
+        {
+            type = InputType.MOUSE,
+            U = new InputUnion { mi = new MOUSEINPUT { dwFlags = MouseEventFlags.LEFTUP } }
+        };
+        SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    private void SendTabs(int count)
+    {
+        for (int i = 0; i < count; i++) SendVirtualKey(VirtualKey.TAB);
+    }
+
+    private void SendVirtualKey(VirtualKey key)
+    {
+        var down = new INPUT
+        {
+            type = InputType.KEYBOARD,
+            U = new InputUnion { ki = new KEYBDINPUT { wVk = (ushort)key, dwFlags = 0 } }
+        };
+        var up = new INPUT
+        {
+            type = InputType.KEYBOARD,
+            U = new InputUnion { ki = new KEYBDINPUT { wVk = (ushort)key, dwFlags = (uint)KeyEventF.KEYUP } }
+        };
+        var arr = new[] { down, up };
+        SendInput((uint)arr.Length, arr, Marshal.SizeOf<INPUT>());
+    }
+
+    private void SendUnicodeText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        var inputs = new List<INPUT>(text.Length * 2);
+        foreach (var ch in text)
+        {
+            // KEYDOWN UNICODE
+            inputs.Add(new INPUT
+            {
+                type = InputType.KEYBOARD,
+                U = new InputUnion
+                {
+                    ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = (uint)KeyEventF.UNICODE }
+                }
+            });
+            // KEYUP UNICODE
+            inputs.Add(new INPUT
+            {
+                type = InputType.KEYBOARD,
+                U = new InputUnion
+                {
+                    ki = new KEYBDINPUT { wVk = 0, wScan = ch, dwFlags = (uint)(KeyEventF.UNICODE | KeyEventF.KEYUP) }
+                }
+            });
+        }
+        if (inputs.Count > 0)
+        {
+            SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, ShowWindowCommands nCmdShow);
+
+    private enum ShowWindowCommands
+    {
+        Hide = 0,
+        ShowNormal = 1,
+        ShowMinimized = 2,
+        ShowMaximized = 3,
+        Restore = 9
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+
+    private enum VirtualKey : ushort
+    {
+        TAB = 0x09,
+        RETURN = 0x0D,
+        SPACE = 0x20
+    }
+
+    [Flags]
+    private enum MouseEventFlags : uint
+    {
+        LEFTDOWN = 0x0002,
+        LEFTUP = 0x0004
+    }
+
+    [Flags]
+    private enum KeyEventF : uint
+    {
+        EXTENDEDKEY = 0x0001,
+        KEYUP = 0x0002,
+        UNICODE = 0x0004,
+        SCANCODE = 0x0008
+    }
+
+    private enum InputType : uint
+    {
+        MOUSE = 0,
+        KEYBOARD = 1,
+        HARDWARE = 2
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public InputType type;
+        public InputUnion U;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct InputUnion
+    {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public HARDWAREINPUT hi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public MouseEventFlags dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HARDWAREINPUT
+    {
+        public uint uMsg;
+        public ushort wParamL;
+        public ushort wParamH;
+    }
+    #endregion
 
     private async Task<LockfileInfo?> WaitForLcuLockfileAsync(TimeSpan timeout)
     {
@@ -599,7 +1071,7 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
-            var names = new[] { "RiotClientUx", "RiotClientUxRender", "RiotClientServices" };
+            var names = new[] { "RiotClientUx", "RiotClientUxRender", "RiotClientServices", "Riot Client" };
             int killed = 0;
             foreach (var name in names)
             {
@@ -614,6 +1086,27 @@ public class RiotClientService : IRiotClientService
         catch (Exception ex)
         {
             _logger.Error($"KillRiotClientOnlyAsync error: {ex.Message}");
+        }
+    }
+
+    private bool AreBothRiotProcessesRunning()
+    {
+        try
+        {
+            var svc = Process.GetProcessesByName("RiotClientServices").Length > 0;
+            var cli = Process.GetProcessesByName("Riot Client").Length > 0;
+            return svc && cli;
+        }
+        catch { return false; }
+    }
+
+    private async Task WaitForBothRiotProcessesAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (AreBothRiotProcessesRunning()) return;
+            await Task.Delay(200);
         }
     }
 
