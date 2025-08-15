@@ -1,4 +1,6 @@
+using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using Velopack;
 using Velopack.Sources;
 using LolManager.Models;
@@ -149,20 +151,25 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            var updateManager = GetUpdateManager();
-            if (updateManager == null)
+            // Сначала пытаемся получить changelog из GitHub API
+            var githubChangelog = await GetGitHubChangelogAsync();
+            if (!string.IsNullOrEmpty(githubChangelog))
             {
-                return GetDefaultChangelog();
+                return githubChangelog;
             }
 
-            var updateInfo = await updateManager.CheckForUpdatesAsync();
-            if (updateInfo?.TargetFullRelease != null)
+            // Если не удалось - пытаемся через Velopack
+            var updateManager = GetUpdateManager();
+            if (updateManager != null)
             {
-                // В Velopack release notes нужно получать из GitHub API или других источников
-                var releaseNotes = $"Обновление до версии {updateInfo.TargetFullRelease.Version}\n" +
-                                   $"Пакет: {updateInfo.TargetFullRelease.PackageId}\n" +
-                                   "Подробности в GitHub Releases";
-                return releaseNotes;
+                var updateInfo = await updateManager.CheckForUpdatesAsync();
+                if (updateInfo?.TargetFullRelease != null)
+                {
+                    var releaseNotes = $"Обновление до версии {updateInfo.TargetFullRelease.Version}\n" +
+                                       $"Пакет: {updateInfo.TargetFullRelease.PackageId}\n" +
+                                       "Подробности в GitHub Releases";
+                    return releaseNotes;
+                }
             }
             
             return GetDefaultChangelog();
@@ -171,6 +178,52 @@ public class UpdateService : IUpdateService
         {
             _logger.Error($"Failed to get changelog: {ex.Message}");
             return GetDefaultChangelog();
+        }
+    }
+
+    private async Task<string> GetGitHubChangelogAsync()
+    {
+        try
+        {
+            const string repoOwner = "RaspizDIYs";
+            const string repoName = "lol-manager";
+            
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
+            
+            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
+            var response = await httpClient.GetStringAsync(url);
+            
+            var releases = System.Text.Json.JsonDocument.Parse(response);
+            var changelog = new StringBuilder();
+            changelog.AppendLine("# История изменений\n");
+            
+            foreach (var release in releases.RootElement.EnumerateArray().Take(10)) // Берем последние 10 релизов
+            {
+                var tagName = release.GetProperty("tag_name").GetString() ?? "Unknown";
+                var name = release.GetProperty("name").GetString() ?? tagName;
+                var publishedAt = release.GetProperty("published_at").GetString();
+                var body = release.GetProperty("body").GetString() ?? "Нет описания";
+                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
+                
+                var releaseType = isPrerelease ? " (Beta)" : "";
+                
+                changelog.AppendLine($"## {name}{releaseType}");
+                if (!string.IsNullOrEmpty(publishedAt) && DateTime.TryParse(publishedAt, out var date))
+                {
+                    changelog.AppendLine($"*Опубликовано: {date:dd.MM.yyyy}*\n");
+                }
+                
+                changelog.AppendLine(body);
+                changelog.AppendLine();
+            }
+            
+            return changelog.ToString();
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to fetch GitHub changelog: {ex.Message}");
+            return string.Empty;
         }
     }
 

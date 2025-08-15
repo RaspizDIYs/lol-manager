@@ -21,6 +21,7 @@
 [Bb]uild[Ll]og.*
 artifacts/
 publish/
+Releases/
 
 # --- Rider / ReSharper / NCrunch ---
 _ReSharper*/

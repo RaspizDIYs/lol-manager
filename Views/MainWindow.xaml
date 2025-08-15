@@ -14,7 +14,8 @@
                  MinHeight="520"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 WindowCornerPreference="Round">
+                 WindowCornerPreference="Round"
+                 Icon="/icon.ico">
     <ui:FluentWindow.DataContext>
         <vm:MainViewModel />
     </ui:FluentWindow.DataContext>
@@ -22,6 +23,8 @@
     <ui:FluentWindow.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <conv:IndexToVisibilityConverter x:Key="IndexToVisibility" />
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
+        <conv:LogTypeConverter x:Key="LogTypeConverter" />
         <Style x:Key="FadingCard" TargetType="ui:Card">
             <Setter Property="Opacity" Value="0"/>
             <Style.Triggers>
@@ -63,7 +66,7 @@
         <ui:TitleBar Grid.Row="0" Title="LoL Account Manager" />
 
         <!-- Layout: Left Nav + Content -->
-            <Grid Grid.Row="1">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -202,22 +205,32 @@
                     </ui:Button>
         
         <!-- Информация о приложении -->
-        <ui:Button Appearance="Transparent"
-                   Command="{Binding ShowInfoCommand}"
+        <ui:Button Command="{Binding OpenInfoCommand}"
                    ToolTip="Информация о приложении" 
                    Margin="0,10,0,0"
                    HorizontalAlignment="Stretch"
                    Height="40"
-                   HorizontalContentAlignment="Left"
-                   BorderBrush="Transparent">
+                   HorizontalContentAlignment="Left">
+            <ui:Button.Style>
+                <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                    <Setter Property="Appearance" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding SelectedTabIndex}" Value="3">
+                            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ui:Button.Style>
             <StackPanel Orientation="Horizontal"
                         VerticalAlignment="Center">
                 <ui:SymbolIcon Symbol="Info24"/>
                 <TextBlock Margin="8,0,0,0" 
                            Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}"
                            Text="Информация"/>
-            </StackPanel>
-        </ui:Button>
+                        </StackPanel>
+                    </ui:Button>
                 </StackPanel>
             </Border>
 
@@ -321,29 +334,217 @@
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
-                                <StackPanel Orientation="Horizontal" Margin="6">
-                                    <ui:Button Appearance="Transparent" Content="Копировать всё" Margin="12,0,0,0" Command="{Binding CopyAllLogsCommand}"/>
-                                    <ui:Button Appearance="Transparent" Content="Открыть файл" Margin="6,0,0,0" Command="{Binding OpenLogFileCommand}"/>
+                                
+                                <!-- Заголовок -->
+                                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6">
+                                    <TextBlock Text="Логи приложения" Margin="6,0,0,0" FontWeight="SemiBold"/>
                                 </StackPanel>
-                                <ListBox Grid.Row="1" ItemsSource="{Binding LogLines}" Background="Transparent" BorderThickness="0" SelectionMode="Extended">
+                                
+                                <!-- Фильтры и управление -->
+                                <Grid Grid.Row="1" Margin="12,10,12,10">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    
+                                    <!-- Фильтры по типам логов -->
+                                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                        <TextBlock Text="Фильтры:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,15,0"/>
+                                        <CheckBox Content="🔐 LOGIN" IsChecked="{Binding LogFilters.ShowLogin}" Margin="0,0,15,0" ToolTip="Показать логи входа в систему"/>
+                                        <CheckBox Content="🌐 HTTP" IsChecked="{Binding LogFilters.ShowHttp}" Margin="0,0,15,0" ToolTip="Показать HTTP запросы"/>
+                                        <CheckBox Content="🖱️ UI" IsChecked="{Binding LogFilters.ShowUi}" Margin="0,0,15,0" ToolTip="Показать UI события"/>
+                                        <CheckBox Content="⚙️ PROC" IsChecked="{Binding LogFilters.ShowProcess}" Margin="0,0,15,0" ToolTip="Показать события процессов"/>
+                                        <CheckBox Content="ℹ️ INFO" IsChecked="{Binding LogFilters.ShowInfo}" Margin="0,0,15,0" ToolTip="Показать информационные сообщения"/>
+                                        <CheckBox Content="⚠️ WARN" IsChecked="{Binding LogFilters.ShowWarning}" Margin="0,0,15,0" ToolTip="Показать предупреждения"/>
+                                        <CheckBox Content="❌ ERROR" IsChecked="{Binding LogFilters.ShowError}" Margin="0,0,15,0" ToolTip="Показать ошибки"/>
+                                    </StackPanel>
+                                    
+                                    <!-- Управление логами -->
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                        <ui:Button Content="Выбрать всё" Command="{Binding SelectAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                                        <ui:Button Content="Снять всё" Command="{Binding ClearAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                                        <Separator Margin="10,0"/>
+                                        <ui:Button Content="Копировать всё" Command="{Binding CopyAllLogsCommand}" Appearance="Transparent" Margin="10,0,10,0"/>
+                                        <ui:Button Content="Копировать отфильтрованные" Command="{Binding CopyFilteredLogsCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                                        <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                                        <ui:Button Content="Очистить логи" Command="{Binding ClearLogsCommand}" Appearance="Secondary" Margin="0,0,10,0"/>
+                                        <ui:Button Content="🔄 Обновить" Command="{Binding RefreshLogsCommand}" Appearance="Primary" Margin="0,0,10,0"/>
+                                    </StackPanel>
+                                </Grid>
+                                
+                                <!-- Список логов -->
+                                <ListBox Grid.Row="2" ItemsSource="{Binding FilteredLogLines}" Background="Transparent" BorderThickness="0" SelectionMode="Extended" x:Name="LogListBox" ScrollViewer.CanContentScroll="True">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
-                                            <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="12"/>
+                                            <Grid>
+                                                <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="4,2"/>
+                                            </Grid>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Padding" Value="2"/>
+                                            <Style.Triggers>
+                                                <!-- Цветовое кодирование по типам логов -->
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="ERROR">
+                                                    <Setter Property="Foreground" Value="#FF6B73"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="WARN">
+                                                    <Setter Property="Foreground" Value="#FFB86C"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="HTTP">
+                                                    <Setter Property="Foreground" Value="#8BE9FD"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="LOGIN">
+                                                    <Setter Property="Foreground" Value="#50FA7B"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="UI">
+                                                    <Setter Property="Foreground" Value="#BD93F9"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="PROC">
+                                                    <Setter Property="Foreground" Value="#F1FA8C"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
                                     <ListBox.ContextMenu>
                                         <ContextMenu>
-                                            <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding SelectedItems, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                                            <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsWithParamCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding SelectedItems, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                                             <MenuItem Header="Копировать всё" Command="{Binding PlacementTarget.DataContext.CopyAllLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="Копировать отфильтрованные" Command="{Binding PlacementTarget.DataContext.CopyFilteredLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <Separator/>
                                             <MenuItem Header="Открыть файл" Command="{Binding PlacementTarget.DataContext.OpenLogFileCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="Очистить логи" Command="{Binding PlacementTarget.DataContext.ClearLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                                         </ContextMenu>
                                     </ListBox.ContextMenu>
                                 </ListBox>
                             </Grid>
                         </ui:Card>
                         
+                        <!-- Вкладка Информация -->
+                        <ui:Card Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=3, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadingCard}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" Margin="6">
+                                    <TextBlock Text="Информация о приложении" Margin="6,0,0,0" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="20">
+                                    <Grid>
+                                        <!-- Системная информация (по умолчанию) -->
+                                        <StackPanel x:Name="InfoContent" Visibility="{Binding IsChangelogVisible, Converter={StaticResource InverseBoolToVisibility}}">
+                                            <!-- Заголовок -->
+                                            <TextBlock Text="LolManager" FontSize="24" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,20"/>
+
+                                            <!-- Информация о версии -->
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,15">
+                                                <TextBlock Text="Версия: " FontWeight="SemiBold"/>
+                                                <TextBlock Text="{Binding AppVersion}" FontWeight="Bold" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
+                                            </StackPanel>
+
+                                            <!-- Информация о системе -->
+                                            <StackPanel Margin="0,0,0,20">
+                                                <TextBlock Text="Системная информация" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                                    <TextBlock Text="ОС: " FontWeight="SemiBold" Width="120"/>
+                                                    <TextBlock x:Name="OSInfo" Text="{Binding SystemInfo.OS}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                                    <TextBlock Text=".NET Runtime: " FontWeight="SemiBold" Width="120"/>
+                                                    <TextBlock x:Name="RuntimeInfo" Text="{Binding SystemInfo.Runtime}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Margin="0,5">
+                                                    <TextBlock Text="Архитектура: " FontWeight="SemiBold" Width="120"/>
+                                                    <TextBlock x:Name="ArchInfo" Text="{Binding SystemInfo.Architecture}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <!-- Переключатель между информацией и историей изменений -->
+                                            <StackPanel Margin="0,0,0,20" HorizontalAlignment="Center">
+                                                <ui:Button Content="📋 Показать историю изменений" 
+                                                           x:Name="ToggleChangelogButton"
+                                                           Command="{Binding ToggleChangelogCommand}"
+                                                           Appearance="Transparent" 
+                                                           Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"/>
+                                            </StackPanel>
+
+                                            <!-- Дополнительная информация -->
+                                            <TextBlock TextWrapping="Wrap" FontFamily="Segoe UI" FontSize="12" Foreground="Gray">
+                                                <Run Text="LolManager - менеджер аккаунтов League of Legends"/>
+                                                <LineBreak/>
+                                                <LineBreak/>
+                                                <Run Text="Функции:"/>
+                                                <LineBreak/>
+                                                <Run Text="• Автоматический вход в Riot Client"/>
+                                                <LineBreak/>
+                                                <Run Text="• Управление несколькими аккаунтами"/>
+                                                <LineBreak/>
+                                                <Run Text="• Безопасное хранение паролей"/>
+                                                <LineBreak/>
+                                                <Run Text="• Мониторинг процессов клиента"/>
+                                                <LineBreak/>
+                                                <Run Text="• Система логирования"/>
+                                                <LineBreak/>
+                                                <Run Text="• Автоматические обновления"/>
+                                                <LineBreak/>
+                                                <LineBreak/>
+                                                <Run Text="Разработано с использованием:"/>
+                                                <LineBreak/>
+                                                <Run Text="• .NET 8.0"/>
+                                                <LineBreak/>
+                                                <Run Text="• WPF + WPFUI"/>
+                                                <LineBreak/>
+                                                <Run Text="• FlaUI (UI Automation)"/>
+                                                <LineBreak/>
+                                                <Run Text="• Velopack (Auto-updates)"/>
+                                                <LineBreak/>
+                                                <Run Text="• CommunityToolkit.Mvvm"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        
+                                        <!-- История изменений (скрыта по умолчанию) -->
+                                        <Grid x:Name="ChangelogContainer" Visibility="{Binding IsChangelogVisible, Converter={StaticResource BoolToVisibility}}">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="*"/>
+                                            </Grid.RowDefinitions>
+                                            
+                                            <!-- Заголовок с крестиком -->
+                                            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                                                <TextBlock Text="История изменений" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                                <ui:Button x:Name="CloseChangelogButton" 
+                                                           Content="✕" 
+                                                           Command="{Binding CloseChangelogCommand}"
+                                                           Appearance="Transparent" 
+                                                           FontSize="14"
+                                                           Padding="8,4" 
+                                                           Margin="10,0,0,0" 
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource SystemFillColorCriticalBrush}"
+                                                           ToolTip="Вернуться к информации о приложении"/>
+                            </StackPanel>
+                                            
+                                            <!-- Содержимое changelog -->
+                                            <TextBox Grid.Row="1" 
+                                                     Text="{Binding ChangelogText}" 
+                                                     IsReadOnly="True" 
+                                                     TextWrapping="Wrap" 
+                                                     FontFamily="Consolas, Courier New" 
+                                                     FontSize="11"
+                                                     Background="Transparent"
+                                                     BorderThickness="0"
+                                                     VerticalScrollBarVisibility="Auto"/>
+                                        </Grid>
+                                    </Grid>
+                                </ScrollViewer>
+                            </Grid>
+                        </ui:Card>
 
                     </Grid>
                 </Grid>

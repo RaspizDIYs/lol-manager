@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyTitle>LolManager</AssemblyTitle>
     <AssemblyDescription>League of Legends Manager</AssemblyDescription>
     <AssemblyVersion>0.0.1.0</AssemblyVersion>
@@ -20,5 +21,9 @@
     <PackageReference Include="FlaUI.Core" Version="4.0.0" />
     <PackageReference Include="FlaUI.UIA3" Version="4.0.0" />
     <PackageReference Include="Velopack" Version="0.0.1350-g3ba32af" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="icon.ico" />
   </ItemGroup>
 </Project>

@@ -50,7 +50,7 @@ public class RiotClientService : IRiotClientService
     public async Task LoginAsync(string username, string password)
     {
         var swAll = Stopwatch.StartNew();
-        _logger.Info("LoginAsync start (UIA flow in Riot Client)");
+        _logger.LoginFlow("LoginAsync start", "UIA flow in Riot Client");
 
         // 1) Убедиться, что RC запущен
         var sw = Stopwatch.StartNew();
@@ -58,7 +58,7 @@ public class RiotClientService : IRiotClientService
         {
             var svcCount = Process.GetProcessesByName("RiotClientServices").Length;
             var cliCount = Process.GetProcessesByName("Riot Client").Length;
-            _logger.Info($"RC processes snapshot: RiotClientServices={svcCount}, 'Riot Client'={cliCount}");
+            _logger.ProcessEvent("RiotClient", "Process count check", $"RiotClientServices={svcCount}, 'Riot Client'={cliCount}");
         }
         catch { }
         bool coldStart = false;
@@ -83,7 +83,7 @@ public class RiotClientService : IRiotClientService
 
         // 3) Немедленно попытаться UIA-ввод (как только появится окно/DOM)
         sw.Restart();
-        _logger.Info("UIA: starting TryLoginViaUIAutomationAsync...");
+        _logger.UiEvent("UIA", "starting TryLoginViaUIAutomationAsync");
         bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(60));
         _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
 
@@ -95,13 +95,44 @@ public class RiotClientService : IRiotClientService
         var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(45));
         if (lcu == null)
         {
-            _logger.Info("LCU not detected after UIA flow. Trying API/args launch as fallback...");
+            _logger.LoginFlow("LCU not detected after UIA", "Trying API/args launch as fallback");
             try { await rcLockReady; } catch { }
-        var launched = await TryLaunchLeagueViaRiotApiAsync();
+            var launched = await TryLaunchLeagueViaRiotApiAsync();
             if (!launched) launched = await TryLaunchLeagueClientAsync();
             if (launched)
             {
+                _logger.LoginFlow("Fallback launch successful", "Waiting for LCU lockfile");
                 lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30));
+            }
+            else
+            {
+                _logger.LoginFlow("All fallback launch methods failed", "League of Legends did not start");
+            }
+        }
+        else
+        {
+            _logger.LoginFlow("LCU lockfile found after UIA", "Checking if League process is actually running");
+            
+            // Проверим, запущен ли League процесс
+            var leagueRunning = IsLeagueProcessRunning();
+            if (!leagueRunning)
+            {
+                _logger.LoginFlow("League process not running", "Launching League manually");
+                var launched = await TryLaunchLeagueViaRiotApiAsync();
+                if (!launched) launched = await TryLaunchLeagueClientAsync();
+                if (launched)
+                {
+                    _logger.LoginFlow("Manual League launch successful", "Waiting for League to start");
+                    await Task.Delay(3000); // Дать время League запуститься
+                }
+                else
+                {
+                    _logger.LoginFlow("Manual League launch failed", "Could not start League of Legends");
+                }
+            }
+            else
+            {
+                _logger.LoginFlow("League process confirmed running", "League of Legends started successfully");
             }
         }
         _logger.Info($"STEP LCU_READY={lcu != null} in {sw.ElapsedMilliseconds}ms, total={swAll.ElapsedMilliseconds}ms");
@@ -355,7 +386,7 @@ public class RiotClientService : IRiotClientService
 
             if (signInElement != null)
             {
-                _logger.Info("UIA: LOGIN_METHOD = BUTTON_CLICK (SignIn button found and clicked)");
+                _logger.UiEvent("UIA Login", "BUTTON_CLICK", "SignIn button found and clicked");
                 try { signInElement.AsButton().Invoke(); }
                 catch
                 {
@@ -372,7 +403,7 @@ public class RiotClientService : IRiotClientService
                     {
                         passwordEl.Focus();
                         await Task.Delay(60);
-                        _logger.Info("UIA: LOGIN_METHOD = ENTER_KEY (SignIn button not found, using Enter)");
+                        _logger.UiEvent("UIA Login", "ENTER_KEY", "SignIn button not found, using Enter");
                         SendVirtualKey(VirtualKey.RETURN);
                     }
                     else { _logger.Info("UIA: skip ENTER, RC window not active"); }
@@ -803,6 +834,7 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
+            _logger.LoginFlow("Trying to launch League via Riot API", "Checking RC lockfile");
             // Убедиться, что RC lockfile доступен
             try { _ = FindLockfile(product: "RC"); }
             catch { await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6)); }
@@ -810,20 +842,34 @@ public class RiotClientService : IRiotClientService
             using var rcClient = CreateHttpClient(rc.Port, rc.Password);
             // Поперечная совместимость разных билдов RiotClient API:
             // 1) новый product-launcher endpoint
+            _logger.LoginFlow("Trying new product-launcher endpoint", "/products/league_of_legends/patchlines/live/launch");
             var payload = new { additionalArguments = new[] { "--launch-product=league_of_legends", "--launch-patchline=live" } };
             var json = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var resp = await rcClient.PostAsync("/product-launcher/v1/products/league_of_legends/patchlines/live/launch", content);
-            // не спамим тело в логах на 404
-            _logger.Info($"RC POST /product-launcher/.../launch -> {(int)resp.StatusCode} {resp.ReasonPhrase}");
-            if (resp.IsSuccessStatusCode) return true;
+            _logger.HttpRequest("POST", "/product-launcher/v1/products/league_of_legends/patchlines/live/launch", (int)resp.StatusCode);
+            if (resp.IsSuccessStatusCode) 
+            {
+                _logger.LoginFlow("League launch via new API successful", "League should be starting");
+                return true;
+            }
 
             // 2) старый универсальный endpoint (на ряде билдов)
+            _logger.LoginFlow("Trying old universal endpoint", "/product-launcher/v1/launch");
             var oldPayload = new { product = "league_of_legends", patchline = "live", additionalArguments = new[] { "--launch-product=league_of_legends", "--launch-patchline=live" } };
             var oldJson = JsonSerializer.Serialize(oldPayload);
             var oldResp = await rcClient.PostAsync("/product-launcher/v1/launch", new StringContent(oldJson, Encoding.UTF8, "application/json"));
-            _logger.Info($"RC POST /product-launcher/v1/launch -> {(int)oldResp.StatusCode} {oldResp.ReasonPhrase}");
-            return oldResp.IsSuccessStatusCode;
+            _logger.HttpRequest("POST", "/product-launcher/v1/launch", (int)oldResp.StatusCode);
+            if (oldResp.IsSuccessStatusCode)
+            {
+                _logger.LoginFlow("League launch via old API successful", "League should be starting");
+                return true;
+            }
+            else
+            {
+                _logger.LoginFlow("Both API endpoints failed", $"New: {(int)resp.StatusCode}, Old: {(int)oldResp.StatusCode}");
+                return false;
+            }
         }
         catch (Exception ex)
         {
@@ -1090,6 +1136,7 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
+            _logger.LoginFlow("Trying to launch League via RiotClientServices", "Searching for executable");
             var candidates = new[]
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
@@ -1103,8 +1150,13 @@ public class RiotClientService : IRiotClientService
             {
                 if (File.Exists(p)) { exe = p; break; }
             }
-            if (exe == null) { _logger.Error("RiotClientServices.exe not found"); return false; }
+            if (exe == null) 
+            { 
+                _logger.LoginFlow("RiotClientServices.exe not found", "Cannot launch League via RiotClientServices");
+                return false; 
+            }
 
+            _logger.LoginFlow("Found RiotClientServices.exe", $"Path: {exe}");
             var psi = new ProcessStartInfo
             {
                 FileName = exe,
@@ -1114,7 +1166,7 @@ public class RiotClientService : IRiotClientService
                 WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory
             };
             Process.Start(psi);
-            _logger.Info($"Started RiotClientServices: {exe} {psi.Arguments}");
+            _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
             await Task.Delay(2000);
             return true;
         }
@@ -1380,17 +1432,27 @@ public class RiotClientService : IRiotClientService
 
     private async Task<LockfileInfo?> WaitForLcuLockfileAsync(TimeSpan timeout)
     {
+        _logger.LoginFlow("Waiting for LCU lockfile", $"Timeout: {timeout.TotalSeconds}s");
         var deadline = DateTime.UtcNow + timeout;
+        var startTime = DateTime.UtcNow;
+        int attempts = 0;
+        
         while (DateTime.UtcNow < deadline)
         {
+            attempts++;
             try
             {
                 var lcu = FindLockfile(product: "LCU");
+                var elapsed = DateTime.UtcNow - startTime;
+                _logger.LoginFlow("LCU lockfile found", $"After {elapsed.TotalSeconds:F1}s, {attempts} attempts");
                 return lcu;
             }
             catch { }
             await Task.Delay(200);
         }
+        
+        var totalElapsed = DateTime.UtcNow - startTime;
+        _logger.LoginFlow("LCU lockfile timeout", $"After {totalElapsed.TotalSeconds:F1}s, {attempts} attempts - League did not start");
         return null;
     }
 
@@ -1470,6 +1532,21 @@ public class RiotClientService : IRiotClientService
             return svc && cli;
         }
         catch { return false; }
+    }
+
+    private bool IsLeagueProcessRunning()
+    {
+        var leagueProcesses = new[] { "LeagueClient", "LeagueClientUx" };
+        foreach (var processName in leagueProcesses)
+        {
+            if (Process.GetProcessesByName(processName).Length > 0)
+            {
+                _logger.ProcessEvent(processName, "Process found", "League is running");
+                return true;
+            }
+        }
+        _logger.ProcessEvent("League", "Process check", "No League processes found");
+        return false;
     }
 
     private async Task WaitForBothRiotProcessesAsync(TimeSpan timeout)
@@ -1692,7 +1769,20 @@ public class RiotClientService : IRiotClientService
         string body = string.Empty;
         try { body = await resp.Content.ReadAsStringAsync(); }
         catch { }
-        _logger.Info($"{label} -> {(int)resp.StatusCode} {resp.ReasonPhrase} | {body}");
+        
+        // Извлекаем метод и URL из label
+        var parts = label.Split(' ', 3);
+        if (parts.Length >= 3)
+        {
+            var method = parts[1];
+            var url = parts[2];
+            _logger.HttpRequest(method, url, (int)resp.StatusCode, body);
+        }
+        else
+        {
+            // Fallback для старого формата
+            _logger.Info($"{label} -> {(int)resp.StatusCode} {resp.ReasonPhrase} | {body}");
+        }
     }
 
     private async Task WaitForLcuHttpReadyAsync(HttpClient client, TimeSpan timeout)

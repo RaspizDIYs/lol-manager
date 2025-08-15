@@ -42,6 +42,10 @@ public partial class MainViewModel : ObservableObject
 	private string logsText = string.Empty;
 
 	public ObservableCollection<string> LogLines { get; } = new();
+	public ObservableCollection<string> FilteredLogLines { get; } = new();
+
+	[ObservableProperty]
+	private LogFilters logFilters = new();
 
 	[ObservableProperty]
 	private string appVersion = "v0.0.1";
@@ -51,6 +55,15 @@ public partial class MainViewModel : ObservableObject
 
 	[ObservableProperty]
 	private List<string> updateChannels = new() { "stable", "beta" };
+
+	[ObservableProperty]
+	private SystemInfo systemInfo = new();
+
+	[ObservableProperty]
+	private bool isChangelogVisible = false;
+
+	[ObservableProperty]
+	private string changelogText = string.Empty;
 
 	public MainViewModel()
 		: this(new AccountsStorage(), new RiotClientService(), new FileLogger(), new SettingsService())
@@ -80,6 +93,12 @@ public partial class MainViewModel : ObservableObject
 				_settingsService.SaveUpdateSettings(UpdateSettings);
 			}
 		};
+		
+		// Подписываемся на изменения фильтров логов
+		LogFilters.PropertyChanged += (s, e) => RefreshFilteredLogs();
+		
+		// Начальная фильтрация логов
+		RefreshFilteredLogs();
 		
 		// Подписываемся на изменения канала обновлений
 		if (UpdateSettings != null)
@@ -131,6 +150,13 @@ public partial class MainViewModel : ObservableObject
 		EnsureLogsTail();
 	}
 
+	[RelayCommand]
+	private void OpenInfo()
+	{
+		SelectedTabIndex = 3;
+		IsChangelogVisible = false;
+	}
+
 
 
 	[RelayCommand]
@@ -167,19 +193,29 @@ public partial class MainViewModel : ObservableObject
 	}
 
 	[RelayCommand]
-	private void ShowInfo()
+	private async Task ToggleChangelog()
 	{
 		try
 		{
-			var updateService = new UpdateService(_logger, _settingsService);
-			var infoWindow = new InfoWindow(updateService);
-			infoWindow.Owner = Application.Current.MainWindow;
-			infoWindow.ShowDialog();
+			IsChangelogVisible = true;
+			
+			if (string.IsNullOrEmpty(ChangelogText))
+			{
+				var updateService = new UpdateService(_logger, _settingsService);
+				ChangelogText = await updateService.GetChangelogAsync();
+			}
 		}
 		catch (Exception ex)
 		{
-			_logger.Error($"Failed to show info: {ex.Message}");
+			_logger.Error($"Failed to load changelog: {ex.Message}");
+			ChangelogText = $"Ошибка загрузки истории изменений:\n{ex.Message}";
 		}
+	}
+
+	[RelayCommand]
+	private void CloseChangelog()
+	{
+		IsChangelogVisible = false;
 	}
 
 	private async Task CheckForUpdatesAsync()
@@ -301,14 +337,21 @@ public partial class MainViewModel : ObservableObject
 					var initContent = await srInit.ReadToEndAsync();
 					_logsLastLength = fs.Length;
 					var linesInit = SplitLines(initContent);
-					// Положим новейшие сверху: добавляем в обратном порядке (с конца файла к началу)
+					// Добавляем строки в обратном порядке: новейшие (из конца файла) сверху
 					Application.Current.Dispatcher.Invoke(() =>
 					{
+						// Читаем строки из файла (старые сверху, новые снизу)
+						// Добавляем в обратном порядке, чтобы новые оказались сверху в UI
 						for (int i = linesInit.Count - 1; i >= 0; i--)
 						{
-							LogLines.Insert(0, linesInit[i]);
-							if (LogLines.Count > maxLines) LogLines.RemoveAt(LogLines.Count - 1);
+							LogLines.Add(linesInit[i]); // Добавляем в конец, но в обратном порядке
 						}
+						
+						// Ограничиваем размер
+						while (LogLines.Count > maxLines)
+							LogLines.RemoveAt(LogLines.Count - 1);
+							
+						RefreshFilteredLogs();
 					});
 				}
 				else if (fs.Length > _logsLastLength)
@@ -324,12 +367,13 @@ public partial class MainViewModel : ObservableObject
 					{
 						Application.Current.Dispatcher.Invoke(() =>
 						{
-							// новые строки в конце файла -> добавляем сверху
-							for (int i = newLines.Count - 1; i >= 0; i--)
+							// новые строки в конце файла -> добавляем в начало списка (новые сверху)
+							for (int i = 0; i < newLines.Count; i++)
 							{
 								LogLines.Insert(0, newLines[i]);
 								if (LogLines.Count > maxLines) LogLines.RemoveAt(LogLines.Count - 1);
 							}
+							RefreshFilteredLogs();
 						});
 					}
 				}
@@ -451,6 +495,141 @@ public partial class MainViewModel : ObservableObject
             _logger.Error($"Logout error: {ex}");
             MessageBox.Show($"Ошибка выхода: {ex.Message}\nЛоги: {_logger.LogFilePath}");
         }
+    }
+
+    [RelayCommand]
+    private void SelectAllFilters()
+    {
+        LogFilters.ShowLogin = true;
+        LogFilters.ShowHttp = true;
+        LogFilters.ShowUi = true;
+        LogFilters.ShowProcess = true;
+        LogFilters.ShowInfo = true;
+        LogFilters.ShowWarning = true;
+        LogFilters.ShowError = true;
+        LogFilters.ShowDebug = true;
+    }
+
+    [RelayCommand]
+    private void ClearAllFilters()
+    {
+        LogFilters.ShowLogin = false;
+        LogFilters.ShowHttp = false;
+        LogFilters.ShowUi = false;
+        LogFilters.ShowProcess = false;
+        LogFilters.ShowInfo = false;
+        LogFilters.ShowWarning = false;
+        LogFilters.ShowError = false;
+        LogFilters.ShowDebug = false;
+    }
+
+    [RelayCommand]
+    private void CopyFilteredLogs()
+    {
+        try
+        {
+            var text = string.Join("\n", FilteredLogLines);
+            Clipboard.SetText(text);
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    private void CopySelectedLogsWithParam(object? parameter)
+    {
+        try
+        {
+            IList? selectedItems = parameter as IList;
+            if (selectedItems == null || selectedItems.Count == 0)
+                return;
+
+            var selectedTexts = new List<string>();
+            foreach (var item in selectedItems)
+            {
+                if (item is string logLine)
+                {
+                    selectedTexts.Add(logLine);
+                }
+            }
+
+            if (selectedTexts.Count > 0)
+            {
+                var text = string.Join("\n", selectedTexts);
+                Clipboard.SetText(text);
+            }
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    private void ClearLogs()
+    {
+        try
+        {
+            LogLines.Clear();
+            FilteredLogLines.Clear();
+            
+            // Очистить файл логов
+            File.WriteAllText(_logger.LogFilePath, string.Empty);
+            _logsLastLength = 0;
+            _logsPartial = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Ошибка очистки логов: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void RefreshLogs()
+    {
+        RefreshFilteredLogs();
+    }
+
+    private void RefreshFilteredLogs()
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            FilteredLogLines.Clear();
+            
+            // LogLines уже в правильном порядке (новые сверху), просто фильтруем
+            foreach (var logLine in LogLines)
+            {
+                if (ShouldShowLogLine(logLine))
+                {
+                    FilteredLogLines.Add(logLine);
+                }
+            }
+        });
+    }
+
+    private bool ShouldShowLogLine(string logLine)
+    {
+        if (string.IsNullOrWhiteSpace(logLine))
+            return false;
+
+        // Извлекаем тип лога из строки формата "[HH:mm:ss.fff] TYPE ..."
+        var bracketEnd = logLine.IndexOf(']');
+        if (bracketEnd == -1) return LogFilters.ShowInfo; // Неизвестный формат - показываем как INFO
+
+        var afterBracket = logLine.Substring(bracketEnd + 1).Trim();
+        var spaceIndex = afterBracket.IndexOf(' ');
+        if (spaceIndex == -1) return LogFilters.ShowInfo;
+
+        var logType = afterBracket.Substring(0, spaceIndex).Trim();
+        
+        return logType switch
+        {
+            "LOGIN" => LogFilters.ShowLogin,
+            "HTTP" => LogFilters.ShowHttp,
+            "UI" => LogFilters.ShowUi,
+            "PROC" => LogFilters.ShowProcess,
+            "INFO" => LogFilters.ShowInfo,
+            "WARN" => LogFilters.ShowWarning,
+            "ERROR" => LogFilters.ShowError,
+            "DEBUG" => LogFilters.ShowDebug,
+            _ => LogFilters.ShowInfo // По умолчанию показываем как INFO
+        };
     }
 
 

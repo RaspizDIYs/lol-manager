@@ -6,7 +6,8 @@
         Height="500" 
         Width="700"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="CanResize">
+                       ResizeMode="CanResize"
+               Icon="/icon.ico">
     
     <Grid Margin="20">
         <Grid.RowDefinitions>
