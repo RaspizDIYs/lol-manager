@@ -6,22 +6,38 @@ namespace LolManager.Services;
 public class UpdateService : IUpdateService
 {
     private readonly ILogger _logger;
-    private readonly UpdateManager _updateManager;
+    private readonly ISettingsService _settingsService;
 
     public string CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.1";
 
-    public UpdateService(ILogger logger)
+    public UpdateService(ILogger logger, ISettingsService settingsService)
     {
         _logger = logger;
-        _updateManager = new UpdateManager();
+        _settingsService = settingsService;
     }
 
     public async Task<bool> CheckForUpdatesAsync()
     {
         try
         {
-            var updateInfo = await _updateManager.CheckForUpdatesAsync();
-            return updateInfo != null;
+            var settings = _settingsService.LoadUpdateSettings();
+            
+            // Проверяем, включены ли автообновления
+            if (!settings.AutoUpdateEnabled)
+                return false;
+                
+            // Проверяем интервал проверки
+            var timeSinceLastCheck = DateTime.UtcNow - settings.LastCheckTime;
+            if (timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
+                return false;
+                
+            // Обновляем время последней проверки
+            settings.LastCheckTime = DateTime.UtcNow;
+            _settingsService.SaveUpdateSettings(settings);
+            
+            // В реальном приложении здесь будет API для проверки обновлений
+            // Пока возвращаем false (нет обновлений)
+            return await Task.FromResult(false);
         }
         catch (Exception ex)
         {
@@ -34,8 +50,9 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            await _updateManager.UpdateAsync();
-            return true;
+            // В реальном приложении здесь будет API для обновления
+            // Пока возвращаем false (обновление не выполнено)
+            return await Task.FromResult(false);
         }
         catch (Exception ex)
         {

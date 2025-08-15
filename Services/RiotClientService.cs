@@ -16,6 +16,10 @@ using System.Net;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using FlaUI.Core;
+using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Definitions;
+using FlaUI.UIA3;
 
 namespace LolManager.Services;
 
@@ -46,32 +50,54 @@ public class RiotClientService : IRiotClientService
     public async Task LoginAsync(string username, string password)
     {
         var swAll = Stopwatch.StartNew();
-        _logger.Info("LoginAsync start (TAB flow in Riot Client)");
+        _logger.Info("LoginAsync start (UIA flow in Riot Client)");
 
         // 1) Убедиться, что RC запущен
         var sw = Stopwatch.StartNew();
+        try
+        {
+            var svcCount = Process.GetProcessesByName("RiotClientServices").Length;
+            var cliCount = Process.GetProcessesByName("Riot Client").Length;
+            _logger.Info($"RC processes snapshot: RiotClientServices={svcCount}, 'Riot Client'={cliCount}");
+        }
+        catch { }
+        bool coldStart = false;
         if (!AreBothRiotProcessesRunning())
         {
             _logger.Info("Both RC processes not running. Restarting Riot Client...");
             await KillRiotClientOnlyAsync();
             await StartRiotClientAsync();
             await WaitForBothRiotProcessesAsync(TimeSpan.FromSeconds(25));
+            coldStart = true;
         }
-        await WaitForRcLockfileAsync(TimeSpan.FromSeconds(20));
-        _logger.Info($"STEP RC_READY in {sw.ElapsedMilliseconds}ms");
+        // 1b) Убедиться, что RC lockfile готов (синхронно)
+        await WaitForRcLockfileAsync(TimeSpan.FromSeconds(10));
+        // 1c) Если холодный старт — ждём только появление окна RC, не ждём CEF
+        if (coldStart)
+        {
+            _logger.Info("Cold start: waiting for RiotClientUx window...");
+            await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(3));
+        }
+        // 1d) Запустить прогрев RSO в фоне (не блокируем UIA)
+        _ = Task.Run(async () => { try { await WarmUpRsoAsync(); } catch { } });
 
-        // 2) Фокус RC окно и выполнить сценарий TAB-ввода
+        // 3) Немедленно попытаться UIA-ввод (как только появится окно/DOM)
         sw.Restart();
-        bool tabOk = await TryLoginViaTabsAsync(username, password, TimeSpan.FromSeconds(25));
-        _logger.Info($"STEP TAB_INPUT_DONE result={tabOk} in {sw.ElapsedMilliseconds}ms");
+        _logger.Info("UIA: starting TryLoginViaUIAutomationAsync...");
+        bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(60));
+        _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
 
-        // 3) Дождаться появления LCU после запуска LoL (Space+Enter на тайле)
+        // 4) Параллельно в фоне убедимся, что RC lockfile готов (для фоллбека запуска)
+        var rcLockReady = WaitForRcLockfileAsync(TimeSpan.FromSeconds(30));
+
+        // 5) Дождаться появления LCU после UIA-ввода/запуска
         sw.Restart();
         var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(45));
         if (lcu == null)
         {
-            _logger.Info("LCU not detected after TAB flow. Trying API/args launch as fallback...");
-            var launched = await TryLaunchLeagueViaRiotApiAsync();
+            _logger.Info("LCU not detected after UIA flow. Trying API/args launch as fallback...");
+            try { await rcLockReady; } catch { }
+        var launched = await TryLaunchLeagueViaRiotApiAsync();
             if (!launched) launched = await TryLaunchLeagueClientAsync();
             if (launched)
             {
@@ -79,6 +105,295 @@ public class RiotClientService : IRiotClientService
             }
         }
         _logger.Info($"STEP LCU_READY={lcu != null} in {sw.ElapsedMilliseconds}ms, total={swAll.ElapsedMilliseconds}ms");
+    }
+
+    private async Task<bool> TryLoginViaUIAutomationAsync(string username, string password, TimeSpan timeout)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            using var automation = new UIA3Automation();
+
+            Application? rcApp = null;
+            for (int i = 0; i < 20 && rcApp == null; i++)
+            {
+                var p = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault()
+                        ?? Process.GetProcessesByName("Riot Client").FirstOrDefault();
+                if (p != null)
+                {
+                    try { rcApp = Application.Attach(p); _logger.Info($"UIA: attached to process {p.ProcessName}[{p.Id}]"); } catch (Exception ex) { _logger.Error($"UIA: attach failed: {ex.Message}"); }
+                }
+                if (rcApp == null) await Task.Delay(250);
+            }
+            if (rcApp == null) { _logger.Info("UIA: no RC process to attach"); return false; }
+
+            // Ждём появление главного окна RC, но с быстрыми ретраями (до 6с)
+            Window? window = null;
+            var deadlineWin = DateTime.UtcNow + TimeSpan.FromSeconds(6);
+            while (DateTime.UtcNow < deadlineWin && window == null)
+            {
+                window = rcApp.GetMainWindow(automation, TimeSpan.FromSeconds(2));
+                if (window == null) await Task.Delay(200);
+            }
+            if (window == null) { _logger.Info("UIA: main window not found within timeout"); return false; }
+
+            // Если окно свернуто — развернуть и вывести на передний план
+            try
+            {
+                var hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
+                ShowWindow(hwnd, ShowWindowCommands.Restore);
+                SetForegroundWindow(hwnd);
+                _logger.Info($"UIA: main window handle=0x{window.Properties.NativeWindowHandle.Value:X}");
+            }
+            catch { }
+
+            // Ждать появления DOM/элементов с ретраями, без глобальных клавиш
+            AutomationElement? riotContent = null;
+            TextBox? usernameEl = null;
+            TextBox? passwordEl = null;
+            AutomationElement? signInElement = null;
+            bool contentLogged = false;
+            bool usernameLogged = false;
+            bool passwordLogged = false;
+            bool buttonLogged = false;
+            bool signInClicked = false;
+
+            // Ждём появления элементов как можно раньше, выполняя Restore+Foreground каждый цикл
+            int scanCycles = 0;
+            int stableFieldsCycles = 0;
+            int lastEditsCount = -1;
+            var lastStateLog = DateTime.MinValue;
+            await Task.Delay(200);
+            while (DateTime.UtcNow < deadline)
+            {
+                try
+                {
+                    var hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
+                    ShowWindow(hwnd, ShowWindowCommands.Restore);
+                    SetForegroundWindow(hwnd);
+                }
+                catch { }
+
+                riotContent ??= window.FindFirstDescendant(cf =>
+                                        cf.ByClassName("Chrome_RenderWidgetHostHWND")
+                                          .Or(cf.ByClassName("Chrome_WidgetWin_0"))
+                                          .Or(cf.ByClassName("Intermediate D3D Window")))
+                                   ?? window;
+                if (riotContent != null && !contentLogged)
+                {
+                    try { _logger.Info($"UIA: riotContent class='{riotContent.Properties.ClassName.Value}'"); } catch { }
+                    contentLogged = true;
+                }
+
+                // 1) Пробуем по AutomationId
+                usernameEl ??= riotContent.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("username").Or(cf.ByAutomationId("login")).Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя"))
+                )?.AsTextBox();
+                passwordEl ??= riotContent.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password"))
+                )?.AsTextBox();
+                if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = DIRECT (username/password by AutomationId/Name)"); usernameLogged = true; }
+                if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = DIRECT (username/password by AutomationId/Name)"); passwordLogged = true; }
+
+                // 2) Если пусто — ищем Edit
+                if (usernameEl == null || passwordEl == null)
+                {
+                    var edits = riotContent.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
+                    if (edits.Length != lastEditsCount && (DateTime.Now - lastStateLog).TotalMilliseconds > 1000)
+                    {
+                        _logger.Info($"UIA: edits count in content = {edits.Length}");
+                        lastStateLog = DateTime.Now;
+                        lastEditsCount = edits.Length;
+                    }
+                    if (edits.Length >= 2)
+                    {
+                        usernameEl ??= edits[0].AsTextBox();
+                        passwordEl ??= edits[1].AsTextBox();
+                        if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = EDIT_INDEX (username via edits[0])"); usernameLogged = true; }
+                        if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = EDIT_INDEX (password via edits[1])"); passwordLogged = true; }
+                    }
+                }
+                // 2b) Последний шанс: искать по всему окну (иногда контейнер другой)
+                if (usernameEl == null || passwordEl == null)
+                {
+                    var uAlt = window.FindFirstDescendant(cf => cf.ByAutomationId("username").Or(cf.ByAutomationId("login"))
+                        .Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя")))?.AsTextBox();
+                    var pAlt = window.FindFirstDescendant(cf => cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password")))?.AsTextBox();
+                    usernameEl ??= uAlt;
+                    passwordEl ??= pAlt;
+                    if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = WINDOW_LEVEL (username via window-wide search)"); usernameLogged = true; }
+                    if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = WINDOW_LEVEL (password via window-wide search)"); passwordLogged = true; }
+                }
+
+                // 3) Кнопка Войти: сначала через чекбокс‑соседа
+                if (signInElement == null)
+                {
+                    var checkbox = riotContent.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                    if (checkbox != null && checkbox.Parent != null)
+                    {
+                        var siblings = checkbox.Parent.FindAllChildren();
+                        var index = Array.IndexOf(siblings, checkbox) + 1;
+                        for (int i = index; i < siblings.Length; i++)
+                        {
+                            if (siblings[i].ControlType == ControlType.Button)
+                            {
+                                signInElement = siblings[i];
+                                break;
+                            }
+                        }
+                    }
+                    // 4) Фоллбек: любая кнопка по имени
+                    if (signInElement == null)
+                    {
+                        signInElement = riotContent.FindFirstDescendant(cf =>
+                            cf.ByControlType(ControlType.Button)
+                              .And(cf.ByName("Sign in").Or(cf.ByName("Sign In")).Or(cf.ByName("Log In")).Or(cf.ByName("Войти"))));
+                    }
+                    if (signInElement != null && !buttonLogged)
+                    {
+                        try { _logger.Info($"UIA: SignIn button found: name='{signInElement.Properties.Name.Value}'"); } catch { _logger.Info("UIA: SignIn button found"); }
+                        buttonLogged = true;
+                    }
+                    // 4b) Если полей ещё нет, но видна кнопка входа — нажмём её сразу, чтобы открыть форму
+                    if (!signInClicked && signInElement != null && (usernameEl == null || passwordEl == null))
+                    {
+                        _logger.Info("UIA: clicking SignIn to open form");
+                        try { signInElement.AsButton().Invoke(); }
+                        catch { try { signInElement.Click(); } catch { } }
+                        signInClicked = true;
+                        await Task.Delay(300);
+                        continue;
+                    }
+                }
+
+                // 3c) Blind-input фоллбек удалён по запросу
+
+                if (usernameEl != null && passwordEl != null)
+                {
+                    stableFieldsCycles++;
+                    if (stableFieldsCycles >= 1) break;
+                }
+                else
+                {
+                    stableFieldsCycles = 0;
+                }
+
+                scanCycles++;
+                // Каждые 15 циклов пробуем «пнуть» CEF кликом по центру окна, чтобы показать форму
+                if (scanCycles % 15 == 0)
+                {
+                    try
+                    {
+                        var hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
+                        _logger.Info("UIA: center click to wake up RC content");
+                        ClickWindowRelative(hwnd, 0.5, 0.5);
+                    }
+                    catch { }
+                }
+                await Task.Delay(120);
+            }
+
+            if (usernameEl == null || passwordEl == null)
+            {
+                _logger.Info("UIA: username/password fields not found (timeout)");
+                return false;
+            }
+
+            // Ввод значений строго через UIA ValuePattern (без SendInput)
+            _logger.Info("UIA: setting username");
+            if (usernameEl.Patterns.Value.IsSupported)
+            {
+                usernameEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                usernameEl.Patterns.Value.Pattern.SetValue(username);
+                _logger.Info("UIA: INPUT_METHOD = VALUE_PATTERN (username via ValuePattern.SetValue)");
+            }
+            else
+            {
+                usernameEl.Focus();
+                await Task.Delay(80);
+                usernameEl.Text = username; // может использовать ValuePattern внутренне
+                _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (username via Text property)");
+            }
+            await Task.Delay(150);
+            // Верификация: если текст не совпал (обрезало 1-й символ) — повторить до 2 раз
+            for (int i = 0; i < 2; i++)
+            {
+                var current = usernameEl.Text ?? string.Empty;
+                if (string.Equals(current, username, StringComparison.Ordinal)) break;
+                _logger.Info($"UIA: username mismatch (got {current.Length} chars, expected {username.Length}), retry {i+1}");
+                if (usernameEl.Patterns.Value.IsSupported)
+                {
+                    usernameEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                    usernameEl.Patterns.Value.Pattern.SetValue(username);
+                }
+                else
+                {
+                    usernameEl.Focus();
+                    await Task.Delay(60);
+                    usernameEl.Text = username;
+                }
+                await Task.Delay(80);
+            }
+
+            _logger.Info("UIA: setting password");
+            if (passwordEl.Patterns.Value.IsSupported)
+            {
+                passwordEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                passwordEl.Patterns.Value.Pattern.SetValue(password);
+                _logger.Info("UIA: INPUT_METHOD = VALUE_PATTERN (password via ValuePattern.SetValue)");
+            }
+            else
+            {
+                passwordEl.Focus();
+                await Task.Delay(80);
+                passwordEl.Text = password;
+                _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (password via Text property)");
+            }
+            await Task.Delay(120);
+            // Не читаем значение пароля (в CEF может кидать исключение), полагаемся на SetValue
+
+            if (signInElement != null)
+            {
+                _logger.Info("UIA: LOGIN_METHOD = BUTTON_CLICK (SignIn button found and clicked)");
+                try { signInElement.AsButton().Invoke(); }
+                catch
+                {
+                    try { signInElement.Click(); } catch { }
+                }
+            }
+            else
+            {
+                // Фоллбек: отправить Enter в контекст пароля только если окно RC активное
+                try
+                {
+                    var active = GetForegroundWindow();
+                    if (active == new IntPtr(window.Properties.NativeWindowHandle.Value))
+                    {
+                        passwordEl.Focus();
+                        await Task.Delay(60);
+                        _logger.Info("UIA: LOGIN_METHOD = ENTER_KEY (SignIn button not found, using Enter)");
+                        SendVirtualKey(VirtualKey.RETURN);
+                    }
+                    else { _logger.Info("UIA: skip ENTER, RC window not active"); }
+                }
+                catch { }
+            }
+
+            // Подождать появления LCU
+            while (DateTime.UtcNow < deadline)
+            {
+                try { var l = FindLockfile(product: "LCU"); _logger.Info("UIA: LCU detected"); return true; } catch { }
+                await Task.Delay(500);
+            }
+            _logger.Info("UIA: LCU not detected within timeout after submit");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"TryLoginViaUIAutomationAsync error: {ex.Message}");
+            return false;
+        }
     }
 
     private async Task TryLoginViaLeagueClientWithRetries(string username, string password, int maxAttempts, int delayMs)
@@ -517,6 +832,95 @@ public class RiotClientService : IRiotClientService
         }
     }
 
+    private async Task WarmUpRsoAsync()
+    {
+        try
+        {
+            // Пробуем инициализировать RSO, чтобы RC отрисовал форму входа
+            var rc = FindLockfile(product: "RC");
+            using var rcClient = CreateHttpClient(rc.Port, rc.Password);
+            var initV1 = new
+            {
+                clientId = "riot-client",
+                nonce = "1",
+                redirect_uri = "http://localhost/redirect",
+                response_type = "token id_token",
+                scope = "openid offline_access lol ban profile link"
+            };
+            var initV3 = new
+            {
+                clientId = "riot-client",
+                nonce = "1",
+                redirectUri = "http://localhost/redirect",
+                responseType = "token id_token",
+                scope = "openid offline_access lol ban profile link"
+            };
+            try { var r1 = await rcClient.PostAsync("/rso-auth/v1/authorization", JsonContent(initV1)); await LogResponse("RC POST /rso-auth/v1/authorization [warm]", r1); } catch { }
+            try { var r3 = await rcClient.PostAsync("/rso-auth/v3/authorization", JsonContent(initV3)); await LogResponse("RC POST /rso-auth/v3/authorization [warm]", r3); } catch { }
+        }
+        catch { }
+    }
+
+    private async Task WaitForRiotUxWindowAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var ux = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                      ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault();
+                if (ux != null) return; // Ждём только процесс, не MainWindowHandle
+            }
+            catch { }
+            await Task.Delay(100);
+        }
+    }
+
+    private async Task WaitForLoginFormReadyBeforeUIAAsync(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var p = Process.GetProcessesByName("Riot Client").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault();
+                if (p != null)
+                {
+                    using var automation = new UIA3Automation();
+                    var app = Application.Attach(p);
+                    var win = app.GetMainWindow(automation, TimeSpan.FromSeconds(1));
+                    if (win != null)
+                    {
+                        var riotContent = win.FindFirstDescendant(cf => cf.ByClassName("Chrome_RenderWidgetHostHWND")
+                            .Or(cf.ByClassName("Chrome_WidgetWin_0"))
+                            .Or(cf.ByClassName("Intermediate D3D Window")));
+                        if (riotContent != null)
+                        {
+                            var anyElement = riotContent.FindFirstDescendant(cf => cf.ByControlType(ControlType.Edit));
+                            if (anyElement != null)
+                            {
+                                _logger.Info("UIA: CEF content ready, found Edit element");
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            await Task.Delay(100);
+        }
+        _logger.Info("UIA: login form not ready after timeout");
+    }
+
+    private static StringContent JsonContent(object payload)
+    {
+        var json = JsonSerializer.Serialize(payload);
+        return new StringContent(json, Encoding.UTF8, "application/json");
+    }
+
     // === RSO (Riot Client) авторизация (legacy) ===
     #region Legacy_RC_RSO_Auth
     #if false
@@ -721,74 +1125,11 @@ public class RiotClientService : IRiotClientService
         }
     }
 
-    // ======== TAB-based RC login/input ========
+    // ======== (Удалено) TAB-based RC login/input ========
     #region TabLogin
-    private async Task<bool> TryLoginViaTabsAsync(string username, string password, TimeSpan overallTimeout)
-    {
-        try
-        {
-            var deadline = DateTime.UtcNow + overallTimeout;
-            IntPtr hwnd = IntPtr.Zero;
-            for (int i = 0; i < 20 && hwnd == IntPtr.Zero; i++)
-            {
-                hwnd = TryGetRiotClientWindow();
-                if (hwnd == IntPtr.Zero) await Task.Delay(500);
-            }
-            if (hwnd == IntPtr.Zero)
-            {
-                _logger.Error("Riot Client window not found for TAB flow");
-                return false;
-            }
-
-            FocusWindow(hwnd);
-            await Task.Delay(200);
-
-            // Клик в левый верхний угол окна
-            ClickTopLeft(hwnd);
-            await Task.Delay(120);
-
-            // 3x TAB
-            SendTabs(3);
-            await Task.Delay(120);
-
-            // Ввод логина (UNICODE)
-            SendUnicodeText(username);
-            await Task.Delay(120);
-
-            // 1x TAB
-            SendTabs(1);
-            await Task.Delay(120);
-
-            // Ввод пароля (UNICODE)
-            SendUnicodeText(password);
-            await Task.Delay(120);
-
-            // 4x TAB -> фокус на тайле LoL (ожидаемо)
-            SendTabs(4);
-            await Task.Delay(120);
-
-            // Space -> click top-left -> Enter
-            SendVirtualKey(VirtualKey.SPACE);
-            await Task.Delay(120);
-            ClickTopLeft(hwnd);
-            await Task.Delay(120);
-            SendVirtualKey(VirtualKey.RETURN);
-
-            // Немного подождать, пока RC обработает и начнёт запуск
-            while (DateTime.UtcNow < deadline)
-            {
-                // Если появился LCU lockfile, выходим
-                try { var lcu = FindLockfile(product: "LCU"); return true; } catch { }
-                await Task.Delay(500);
-            }
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"TryLoginViaTabsAsync error: {ex.Message}");
-            return false;
-        }
-    }
+    // Полностью отключено по просьбе пользователя: UIAutomation-only
+    private Task<bool> TryLoginViaTabsAsync(string username, string password, TimeSpan overallTimeout)
+        => Task.FromResult(false);
 
     private IntPtr TryGetRiotClientWindow()
     {
@@ -817,6 +1158,21 @@ public class RiotClientService : IRiotClientService
         catch { }
     }
 
+    private void EnsureForegroundWithRetries(IntPtr hwnd, int retries)
+    {
+        for (int i = 0; i < retries; i++)
+        {
+            try
+            {
+                ShowWindow(hwnd, ShowWindowCommands.Restore);
+                SetForegroundWindow(hwnd);
+                if (GetForegroundWindow() == hwnd) return;
+            }
+            catch { }
+            Thread.Sleep(120);
+        }
+    }
+
     private void ClickTopLeft(IntPtr hwnd)
     {
         try
@@ -830,6 +1186,21 @@ public class RiotClientService : IRiotClientService
             }
             int x = rect.Left + 10;
             int y = rect.Top + 10;
+            SetCursorPos(x, y);
+            MouseLeftClick();
+        }
+        catch { }
+    }
+
+    private void ClickWindowRelative(IntPtr hwnd, double xPercent, double yPercent)
+    {
+        try
+        {
+            if (!GetWindowRect(hwnd, out var rect)) return;
+            int width = rect.Right - rect.Left;
+            int height = rect.Bottom - rect.Top;
+            int x = rect.Left + Math.Max(0, Math.Min(width - 1, (int)(width * xPercent)));
+            int y = rect.Top + Math.Max(0, Math.Min(height - 1, (int)(height * yPercent)));
             SetCursorPos(x, y);
             MouseLeftClick();
         }
@@ -852,10 +1223,8 @@ public class RiotClientService : IRiotClientService
         SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
     }
 
-    private void SendTabs(int count)
-    {
-        for (int i = 0; i < count; i++) SendVirtualKey(VirtualKey.TAB);
-    }
+    // Отключено: больше не шлём TAB
+    private void SendTabs(int count) { }
 
     private void SendVirtualKey(VirtualKey key)
     {
@@ -918,6 +1287,9 @@ public class RiotClientService : IRiotClientService
 
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, ShowWindowCommands nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     private enum ShowWindowCommands
     {

@@ -1,5 +1,7 @@
 using System.Windows;
 using LolManager.Services;
+using System;
+using System.Threading.Tasks;
 
 namespace LolManager.Views;
 
@@ -45,22 +47,22 @@ public partial class UpdateWindow : Window
             var success = await _updateService.UpdateAsync();
             if (success)
             {
-                MessageBox.Show("Обновление завершено. Приложение будет перезапущено.", 
-                              "Обновление", MessageBoxButton.OK, MessageBoxImage.Information);
-                Application.Current.Shutdown();
+                System.Windows.MessageBox.Show("Обновление завершено. Приложение будет перезапущено.", 
+                              "Обновление", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                System.Windows.Application.Current.Shutdown();
             }
             else
             {
-                MessageBox.Show("Не удалось выполнить обновление.", 
-                              "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                System.Windows.MessageBox.Show("Не удалось выполнить обновление.", 
+                              "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 UpdateButton.IsEnabled = true;
                 UpdateButton.Content = "Обновить сейчас";
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Ошибка при обновлении: {ex.Message}", 
-                          "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+            System.Windows.MessageBox.Show($"Ошибка при обновлении: {ex.Message}", 
+                          "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             UpdateButton.IsEnabled = true;
             UpdateButton.Content = "Обновить сейчас";
         }

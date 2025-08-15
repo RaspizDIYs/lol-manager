@@ -63,7 +63,7 @@
         <ui:TitleBar Grid.Row="0" Title="LoL Account Manager" />
 
         <!-- Layout: Left Nav + Content -->
-        <Grid Grid.Row="1">
+            <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -128,32 +128,96 @@
                     <Separator Margin="0,6,0,6"/>
 
                     <!-- Tabs items -->
-                    <ui:Button Appearance="Transparent" 
-                               Command="{Binding OpenAccountsCommand}"
+                    <ui:Button Command="{Binding OpenAccountsCommand}"
                                ToolTip="Аккаунты" Margin="0,10,0,0" 
                                HorizontalAlignment="Stretch"
                                Height="40" 
-                               HorizontalContentAlignment="Left"
-                               BorderBrush="Transparent">
+                               HorizontalContentAlignment="Left">
+                        <ui:Button.Style>
+                            <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                                <Setter Property="Appearance" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedTabIndex}" Value="0">
+                                        <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ui:Button.Style>
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <ui:SymbolIcon Symbol="Person32"/>
                             <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Аккаунты</TextBlock>
                         </StackPanel>
                     </ui:Button>
 
-                    <ui:Button Appearance="Transparent"
-                               Command="{Binding OpenSettingsCommand}"
+                    <ui:Button Command="{Binding OpenSettingsCommand}"
                                ToolTip="Настройки" Margin="0,10,0,0" 
                                HorizontalAlignment="Stretch"
                                Height="40"
-                               HorizontalContentAlignment="Left"
-                               BorderBrush="Transparent">
+                               HorizontalContentAlignment="Left">
+                        <ui:Button.Style>
+                            <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                                <Setter Property="Appearance" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedTabIndex}" Value="1">
+                                        <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ui:Button.Style>
                         <StackPanel Orientation="Horizontal"
                                     VerticalAlignment="Center">
                             <ui:SymbolIcon Symbol="Settings32"/>
                             <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Настройки</TextBlock>
                         </StackPanel>
                     </ui:Button>
+                    
+
+
+                    <ui:Button Command="{Binding OpenLogsPaneCommand}"
+                               ToolTip="Логи" Margin="0,10,0,0"
+                               HorizontalAlignment="Stretch"
+                               Height="40"
+                               HorizontalContentAlignment="Left">
+                        <ui:Button.Style>
+                            <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                                <Setter Property="Appearance" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedTabIndex}" Value="2">
+                                        <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ui:Button.Style>
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="DocumentText24"/>
+                            <TextBlock Margin="8,0,0,0" Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}">Логи</TextBlock>
+                        </StackPanel>
+                    </ui:Button>
+        
+        <!-- Информация о приложении -->
+        <ui:Button Appearance="Transparent"
+                   Command="{Binding ShowInfoCommand}"
+                   ToolTip="Информация о приложении" 
+                   Margin="0,10,0,0"
+                   HorizontalAlignment="Stretch"
+                   Height="40"
+                   HorizontalContentAlignment="Left"
+                   BorderBrush="Transparent">
+            <StackPanel Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <ui:SymbolIcon Symbol="Info24"/>
+                <TextBlock Margin="8,0,0,0" 
+                           Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}"
+                           Text="Информация"/>
+            </StackPanel>
+        </ui:Button>
                 </StackPanel>
             </Border>
 
@@ -204,14 +268,87 @@
                         </ui:Card>
 
                         <ui:Card Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=1, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadingCard}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-                            <StackPanel Orientation="Vertical">
-                                <TextBlock Text="Генерация документации по LCU" Margin="0,0,0,6"/>
-                                <ui:Button Appearance="Primary" Content="Сгенерировать LCU Docs" Command="{Binding GenerateLcuDocsCommand}" />
-                            </StackPanel>
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" Margin="6">
+                                    <TextBlock Text="Настройки" Margin="6,0,0,0" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Margin="20">
+                                        <TextBlock Text="Настройки приложения" FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
+                                        
+                                        <!-- Настройки обновлений -->
+                                        <TextBlock Text="Обновления" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+                                        
+                                        <CheckBox x:Name="AutoUpdateCheckBox" 
+                                                  Content="Включить автоматические обновления" 
+                                                  IsChecked="{Binding UpdateSettings.AutoUpdateEnabled}"
+                                                  Margin="0,0,0,15"/>
+                                        
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                                            <TextBlock Text="Канал обновлений:" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                            <ComboBox Width="150" 
+                                                      SelectedItem="{Binding UpdateSettings.UpdateChannel}"
+                                                      ItemsSource="{Binding UpdateChannels}"/>
+                                        </StackPanel>
+                                        
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                                            <TextBlock Text="Интервал проверки (часы):" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                            <TextBox Width="80" 
+                                                     Text="{Binding UpdateSettings.CheckIntervalHours}"
+                                                     VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                                            <TextBlock Text="Последняя проверка:" VerticalAlignment="Center" Margin="0,0,15,0"/>
+                                            <TextBlock Text="{Binding UpdateSettings.LastCheckTime, StringFormat='dd.MM.yyyy HH:mm'}" 
+                                                       VerticalAlignment="Center" Foreground="Gray"/>
+                                        </StackPanel>
+                                        
+                                        <ui:Button Content="Проверить обновления сейчас" 
+                                                   Command="{Binding CheckUpdatesNowCommand}"
+                                                   Appearance="Primary"
+                                                   Margin="0,20,0,0"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Grid>
                         </ui:Card>
+
+                        <ui:Card Margin="8" Visibility="{Binding SelectedTabIndex, ConverterParameter=2, Converter={StaticResource IndexToVisibility}}" Style="{StaticResource FadingCard}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <StackPanel Orientation="Horizontal" Margin="6">
+                                    <ui:Button Appearance="Transparent" Content="Копировать всё" Margin="12,0,0,0" Command="{Binding CopyAllLogsCommand}"/>
+                                    <ui:Button Appearance="Transparent" Content="Открыть файл" Margin="6,0,0,0" Command="{Binding OpenLogFileCommand}"/>
+                                </StackPanel>
+                                <ListBox Grid.Row="1" ItemsSource="{Binding LogLines}" Background="Transparent" BorderThickness="0" SelectionMode="Extended">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="12"/>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                    <ListBox.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding SelectedItems, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+                                            <MenuItem Header="Копировать всё" Command="{Binding PlacementTarget.DataContext.CopyAllLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                            <MenuItem Header="Открыть файл" Command="{Binding PlacementTarget.DataContext.OpenLogFileCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        </ContextMenu>
+                                    </ListBox.ContextMenu>
+                                </ListBox>
+                            </Grid>
+                        </ui:Card>
+                        
+
                     </Grid>
                 </Grid>
             </ui:Card>
+
         </Grid>
     </Grid>
 </ui:FluentWindow>

@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Timers;
+using Velopack;
 
 namespace LolManager;
 
@@ -15,6 +16,14 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        
+        // Инициализация Velopack для автообновлений
+        try
+        {
+            VelopackApp.Build().Run();
+        }
+        catch { }
+        
         try
         {
             _heartbeat = new System.Timers.Timer(60_000);
