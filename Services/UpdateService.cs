@@ -1,5 +1,7 @@
 using System.Reflection;
 using Velopack;
+using Velopack.Sources;
+using LolManager.Models;
 
 namespace LolManager.Services;
 
@@ -7,6 +9,7 @@ public class UpdateService : IUpdateService
 {
     private readonly ILogger _logger;
     private readonly ISettingsService _settingsService;
+    private UpdateManager? _updateManager;
 
     public string CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.1";
 
@@ -16,28 +19,89 @@ public class UpdateService : IUpdateService
         _settingsService = settingsService;
     }
 
+    private UpdateManager? GetUpdateManager()
+    {
+        try
+        {
+            if (_updateManager == null)
+            {
+                var settings = _settingsService.LoadUpdateSettings();
+                var updateSource = GetUpdateSource(settings.UpdateChannel);
+                _updateManager = new UpdateManager(updateSource);
+            }
+            return _updateManager;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to create UpdateManager: {ex.Message}");
+            return null;
+        }
+    }
+
+    private IUpdateSource GetUpdateSource(string channel)
+    {
+        const string repoOwner = "RaspizDIYs"; 
+        const string repoName = "lol-manager";
+        
+        var baseUrl = $"https://github.com/{repoOwner}/{repoName}/releases";
+        
+        return channel switch
+        {
+            "beta" => new GithubSource(baseUrl, null, true), // включает pre-releases
+            "stable" => new GithubSource(baseUrl, null, false), // только stable releases
+            _ => new GithubSource(baseUrl, null, false)
+        };
+    }
+
+    public void RefreshUpdateSource()
+    {
+        try
+        {
+            // Сбрасываем кэшированный UpdateManager для пересоздания с новым каналом
+            _updateManager = null;
+            
+            var settings = _settingsService.LoadUpdateSettings();
+            _logger.Info($"Update source refreshed for channel: {settings.UpdateChannel}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to refresh update source: {ex.Message}");
+        }
+    }
+
     public async Task<bool> CheckForUpdatesAsync()
     {
         try
         {
+            var updateManager = GetUpdateManager();
+            if (updateManager == null)
+            {
+                _logger.Error("UpdateManager not available");
+                return false;
+            }
+
             var settings = _settingsService.LoadUpdateSettings();
             
-            // Проверяем, включены ли автообновления
-            if (!settings.AutoUpdateEnabled)
-                return false;
-                
-            // Проверяем интервал проверки
+            // Проверяем интервал проверки (но не для ручной проверки)
             var timeSinceLastCheck = DateTime.UtcNow - settings.LastCheckTime;
-            if (timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
+            if (settings.AutoUpdateEnabled && timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
                 return false;
                 
             // Обновляем время последней проверки
             settings.LastCheckTime = DateTime.UtcNow;
             _settingsService.SaveUpdateSettings(settings);
             
-            // В реальном приложении здесь будет API для проверки обновлений
-            // Пока возвращаем false (нет обновлений)
-            return await Task.FromResult(false);
+            _logger.Info($"Checking for updates on {settings.UpdateChannel} channel...");
+            
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo != null)
+            {
+                _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
+                return true;
+            }
+            
+            _logger.Info("No updates available");
+            return false;
         }
         catch (Exception ex)
         {
@@ -50,9 +114,29 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            // В реальном приложении здесь будет API для обновления
-            // Пока возвращаем false (обновление не выполнено)
-            return await Task.FromResult(false);
+            var updateManager = GetUpdateManager();
+            if (updateManager == null)
+            {
+                _logger.Error("UpdateManager not available");
+                return false;
+            }
+
+            _logger.Info("Starting update process...");
+            
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo == null)
+            {
+                _logger.Info("No updates available for download");
+                return false;
+            }
+
+            _logger.Info($"Downloading update: {updateInfo.TargetFullRelease.Version}");
+            await updateManager.DownloadUpdatesAsync(updateInfo);
+            
+            _logger.Info("Update downloaded, applying and restarting...");
+            updateManager.ApplyUpdatesAndRestart(updateInfo);
+            
+            return true;
         }
         catch (Exception ex)
         {
@@ -65,14 +149,28 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            // В реальном приложении здесь будет API для получения changelog
-            // Пока возвращаем заглушку
-            return await Task.FromResult(GetDefaultChangelog());
+            var updateManager = GetUpdateManager();
+            if (updateManager == null)
+            {
+                return GetDefaultChangelog();
+            }
+
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo?.TargetFullRelease != null)
+            {
+                // В Velopack release notes нужно получать из GitHub API или других источников
+                var releaseNotes = $"Обновление до версии {updateInfo.TargetFullRelease.Version}\n" +
+                                   $"Пакет: {updateInfo.TargetFullRelease.PackageId}\n" +
+                                   "Подробности в GitHub Releases";
+                return releaseNotes;
+            }
+            
+            return GetDefaultChangelog();
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to get changelog: {ex.Message}");
-            return "Ошибка загрузки changelog";
+            return GetDefaultChangelog();
         }
     }
 

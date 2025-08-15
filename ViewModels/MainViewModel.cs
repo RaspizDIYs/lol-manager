@@ -50,7 +50,7 @@ public partial class MainViewModel : ObservableObject
 	private UpdateSettings updateSettings = new();
 
 	[ObservableProperty]
-	private List<string> updateChannels = new() { "stable", "beta", "alpha" };
+	private List<string> updateChannels = new() { "stable", "beta" };
 
 	public MainViewModel()
 		: this(new AccountsStorage(), new RiotClientService(), new FileLogger(), new SettingsService())
@@ -80,6 +80,27 @@ public partial class MainViewModel : ObservableObject
 				_settingsService.SaveUpdateSettings(UpdateSettings);
 			}
 		};
+		
+		// Подписываемся на изменения канала обновлений
+		if (UpdateSettings != null)
+		{
+			UpdateSettings.PropertyChanged += (s, e) =>
+			{
+				if (e.PropertyName == nameof(UpdateSettings.UpdateChannel))
+				{
+					try
+					{
+						var updateService = new UpdateService(_logger, _settingsService);
+						updateService.RefreshUpdateSource();
+						_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
+					}
+					catch (Exception ex)
+					{
+						_logger.Error($"Failed to refresh update source: {ex.Message}");
+					}
+				}
+			};
+		}
 		
 		// Автоматическая проверка обновлений
 		_ = Task.Run(async () => await CheckForUpdatesAsync());

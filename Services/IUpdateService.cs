@@ -6,4 +6,5 @@ public interface IUpdateService
     Task<bool> CheckForUpdatesAsync();
     Task<bool> UpdateAsync();
     Task<string> GetChangelogAsync();
+    void RefreshUpdateSource();
 }
