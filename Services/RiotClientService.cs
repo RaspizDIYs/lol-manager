@@ -97,7 +97,7 @@ public class RiotClientService : IRiotClientService
         {
             _logger.LoginFlow("LCU not detected after UIA", "Trying API/args launch as fallback");
             try { await rcLockReady; } catch { }
-            var launched = await TryLaunchLeagueViaRiotApiAsync();
+        var launched = await TryLaunchLeagueViaRiotApiAsync();
             if (!launched) launched = await TryLaunchLeagueClientAsync();
             if (launched)
             {
@@ -1781,7 +1781,7 @@ public class RiotClientService : IRiotClientService
         else
         {
             // Fallback для старого формата
-            _logger.Info($"{label} -> {(int)resp.StatusCode} {resp.ReasonPhrase} | {body}");
+        _logger.Info($"{label} -> {(int)resp.StatusCode} {resp.ReasonPhrase} | {body}");
         }
     }
 
