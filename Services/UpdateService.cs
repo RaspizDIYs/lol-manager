@@ -45,14 +45,14 @@ public class UpdateService : IUpdateService
         const string repoOwner = "RaspizDIYs"; 
         const string repoName = "lol-manager";
         
-        // Velopack GithubSource ожидает репозиторий в формате "owner/repo", не URL
-        var repoString = $"{repoOwner}/{repoName}";
+        // Velopack GithubSource ожидает полный URL к API GitHub
+        var apiUrl = $"https://api.github.com/repos/{repoOwner}/{repoName}";
         
         return channel switch
         {
-            "beta" => new GithubSource(repoString, null, true), // включает pre-releases
-            "stable" => new GithubSource(repoString, null, false), // только stable releases
-            _ => new GithubSource(repoString, null, false)
+            "beta" => new GithubSource(apiUrl, null, true), // включает pre-releases
+            "stable" => new GithubSource(apiUrl, null, false), // только stable releases
+            _ => new GithubSource(apiUrl, null, false)
         };
     }
 
