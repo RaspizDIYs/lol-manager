@@ -17,9 +17,43 @@ public class AccountsStorage : IAccountsStorage
 
     public AccountsStorage()
     {
-        var appDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LolManager");
+        // Используем ApplicationData (Roaming) для стабильности при обновлениях
+        var appDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LolManager");
         Directory.CreateDirectory(appDir);
         _dataFilePath = Path.Combine(appDir, "accounts.json");
+        
+        // Пытаемся мигрировать данные из старого местоположения
+        MigrateFromOldLocation();
+    }
+    
+    private void MigrateFromOldLocation()
+    {
+        // Если новый файл уже существует, миграция не нужна
+        if (File.Exists(_dataFilePath)) return;
+        
+        // Проверяем старое местоположение (LocalApplicationData)
+        var oldAppDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LolManager");
+        var oldFilePath = Path.Combine(oldAppDir, "accounts.json");
+        
+        if (File.Exists(oldFilePath))
+        {
+            try
+            {
+                // Копируем файл в новое местоположение
+                File.Copy(oldFilePath, _dataFilePath, overwrite: true);
+                
+                // Создаем backup старого файла
+                var backupPath = oldFilePath + ".backup";
+                if (!File.Exists(backupPath))
+                {
+                    File.Copy(oldFilePath, backupPath);
+                }
+            }
+            catch
+            {
+                // Если миграция не удалась, продолжаем работу без данных
+            }
+        }
     }
 
     public IEnumerable<AccountRecord> LoadAll()
@@ -42,6 +76,13 @@ public class AccountsStorage : IAccountsStorage
         var list = LoadAll().ToList();
         var existingIdx = list.FindIndex(a => string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
         if (existingIdx >= 0) list[existingIdx] = account; else list.Add(account);
+        
+        // Создаем backup перед сохранением
+        if (File.Exists(_dataFilePath))
+        {
+            var backupPath = _dataFilePath + ".bak";
+            File.Copy(_dataFilePath, backupPath, overwrite: true);
+        }
         
         File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
         
