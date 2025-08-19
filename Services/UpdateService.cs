@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
@@ -169,33 +170,119 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            var updateManager = GetUpdateManager();
-            if (updateManager == null)
-            {
-                _logger.Error("UpdateManager not available");
-                return false;
-            }
-
             _logger.Info("Starting update process...");
             
-            var updateInfo = await updateManager.CheckForUpdatesAsync();
-            if (updateInfo == null)
+            // Сначала пытаемся через Velopack
+            var updateManager = GetUpdateManager();
+            if (updateManager != null)
             {
-                _logger.Info("No updates available for download");
-                return false;
+                try
+                {
+                    var updateInfo = await updateManager.CheckForUpdatesAsync();
+                    if (updateInfo != null)
+                    {
+                        _logger.Info($"Downloading update via Velopack: {updateInfo.TargetFullRelease.Version}");
+                        await updateManager.DownloadUpdatesAsync(updateInfo);
+                        
+                        _logger.Info("Update downloaded, applying and restarting...");
+                        updateManager.ApplyUpdatesAndRestart(updateInfo);
+                        
+                        return true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Velopack update failed: {ex.Message}");
+                    _logger.Info("Falling back to direct GitHub download...");
+                }
             }
-
-            _logger.Info($"Downloading update: {updateInfo.TargetFullRelease.Version}");
-            await updateManager.DownloadUpdatesAsync(updateInfo);
             
-            _logger.Info("Update downloaded, applying and restarting...");
-            updateManager.ApplyUpdatesAndRestart(updateInfo);
-            
-            return true;
+            // Fallback: скачиваем Setup.exe напрямую с GitHub
+            return await UpdateViaGitHubDirectAsync();
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to update: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> UpdateViaGitHubDirectAsync()
+    {
+        try
+        {
+            const string repoOwner = "RaspizDIYs";
+            const string repoName = "lol-manager";
+            
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
+            
+            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
+            var response = await httpClient.GetStringAsync(url);
+            
+            var releases = System.Text.Json.JsonDocument.Parse(response);
+            
+            foreach (var release in releases.RootElement.EnumerateArray())
+            {
+                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
+                
+                // Только stable releases
+                if (isPrerelease) continue;
+                    
+                var tagName = release.GetProperty("tag_name").GetString() ?? "";
+                var releaseVersion = tagName.TrimStart('v');
+                
+                if (!IsNewerVersion(CurrentVersion, releaseVersion)) continue;
+                
+                // Ищем Setup.exe в assets
+                var assets = release.GetProperty("assets");
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    var fileName = asset.GetProperty("name").GetString() ?? "";
+                    if (fileName.EndsWith("-Setup.exe") || fileName.EndsWith("Setup.exe"))
+                    {
+                        var downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                        if (string.IsNullOrEmpty(downloadUrl)) continue;
+                        
+                        _logger.Info($"Downloading setup from: {downloadUrl}");
+                        
+                        // Скачиваем во временную папку
+                        var tempPath = Path.GetTempFileName();
+                        var setupPath = Path.ChangeExtension(tempPath, ".exe");
+                        
+                        using var fileStream = File.Create(setupPath);
+                        using var downloadStream = await httpClient.GetStreamAsync(downloadUrl);
+                        await downloadStream.CopyToAsync(fileStream);
+                        
+                        _logger.Info($"Setup downloaded to: {setupPath}");
+                        
+                        // Запускаем установщик
+                        var startInfo = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = setupPath,
+                            Arguments = "/S", // Тихая установка
+                            UseShellExecute = true
+                        };
+                        
+                        _logger.Info("Starting setup...");
+                        System.Diagnostics.Process.Start(startInfo);
+                        
+                        // Завершаем текущее приложение
+                        Environment.Exit(0);
+                        
+                        return true;
+                    }
+                }
+                
+                break; // Берем только первый подходящий релиз
+            }
+            
+            _logger.Error("No setup file found in the latest release");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Direct GitHub update failed: {ex.Message}");
             return false;
         }
     }

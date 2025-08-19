@@ -333,13 +333,13 @@ public partial class MainViewModel : ObservableObject
 			}
 			else
 			{
-				System.Windows.MessageBox.Show("Обновлений не найдено.", "Проверка обновлений", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+				MessageWindow.Show("Обновлений не найдено.", "Проверка обновлений", MessageWindow.MessageType.Information);
 			}
 		}
 		catch (Exception ex)
 		{
 			_logger.Error($"Failed to check updates: {ex.Message}");
-			System.Windows.MessageBox.Show($"Ошибка при проверке обновлений: {ex.Message}", "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+			MessageWindow.Show($"Ошибка при проверке обновлений: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
 		}
 	}
 
@@ -552,7 +552,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.Error($"Login error for {SelectedAccount.Username}: {ex}");
-            MessageBox.Show($"Ошибка входа: {ex.Message}\nЛоги: {_logger.LogFilePath}");
+            MessageWindow.Show($"Ошибка входа: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка входа", MessageWindow.MessageType.Error);
         }
     }
 
@@ -574,7 +574,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.Error($"RestartWithoutLogin error: {ex}");
-            MessageBox.Show($"Ошибка перезапуска: {ex.Message}\nЛоги: {_logger.LogFilePath}");
+            MessageWindow.Show($"Ошибка перезапуска: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка перезапуска", MessageWindow.MessageType.Error);
         }
     }
 
@@ -597,7 +597,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.Error($"ReLogin error: {ex}");
-            MessageBox.Show($"Ошибка перезахода: {ex.Message}\nЛоги: {_logger.LogFilePath}");
+            MessageWindow.Show($"Ошибка перезахода: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка перезахода", MessageWindow.MessageType.Error);
         }
     }
 
@@ -612,7 +612,7 @@ public partial class MainViewModel : ObservableObject
         catch (Exception ex)
         {
             _logger.Error($"Logout error: {ex}");
-            MessageBox.Show($"Ошибка выхода: {ex.Message}\nЛоги: {_logger.LogFilePath}");
+            MessageWindow.Show($"Ошибка выхода: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка выхода", MessageWindow.MessageType.Error);
         }
     }
 
@@ -695,7 +695,7 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Ошибка очистки логов: {ex.Message}");
+            MessageWindow.Show($"Ошибка очистки логов: {ex.Message}", "Ошибка очистки", MessageWindow.MessageType.Error);
         }
     }
 

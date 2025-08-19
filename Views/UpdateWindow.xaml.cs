@@ -56,22 +56,22 @@ public partial class UpdateWindow : Window
             var success = await _updateService.UpdateAsync();
             if (success)
             {
-                System.Windows.MessageBox.Show("Обновление завершено. Приложение будет перезапущено.", 
-                              "Обновление", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                MessageWindow.Show("Обновление завершено. Приложение будет перезапущено.", 
+                              "Обновление завершено", MessageWindow.MessageType.Success, MessageWindow.MessageButtons.Ok, this);
                 System.Windows.Application.Current.Shutdown();
             }
             else
             {
-                System.Windows.MessageBox.Show("Не удалось выполнить обновление.", 
-                              "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                MessageWindow.Show("Не удалось выполнить обновление.", 
+                              "Ошибка обновления", MessageWindow.MessageType.Error, MessageWindow.MessageButtons.Ok, this);
                 UpdateButton.IsEnabled = true;
                 UpdateButton.Content = "Обновить сейчас";
             }
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show($"Ошибка при обновлении: {ex.Message}", 
-                          "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            MessageWindow.Show($"Ошибка при обновлении: {ex.Message}", 
+                          "Ошибка обновления", MessageWindow.MessageType.Error, MessageWindow.MessageButtons.Ok, this);
             UpdateButton.IsEnabled = true;
             UpdateButton.Content = "Обновить сейчас";
         }

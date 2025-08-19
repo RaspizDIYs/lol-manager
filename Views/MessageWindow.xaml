@@ -1,0 +1,70 @@
+<ui:FluentWindow x:Class="LolManager.Views.MessageWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Height="200" Width="400"
+                 MaxWidth="600"
+                 MaxHeight="400"
+                 MinWidth="350"
+                 MinHeight="150"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="None"
+                 WindowCornerPreference="Round"
+                 WindowStartupLocation="CenterOwner"
+                 ResizeMode="NoResize"
+                 Icon="/icon.ico">
+    
+    <Grid Margin="24,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Заголовок с иконкой -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,20">
+            <ui:SymbolIcon x:Name="MessageIcon" 
+                          Symbol="Info24" 
+                          Width="32" 
+                          Height="32" 
+                          Margin="0,0,12,0"/>
+            <TextBlock x:Name="TitleText" 
+                       Text="Сообщение" 
+                       FontSize="18" 
+                       FontWeight="SemiBold" 
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+        
+        <!-- Содержимое -->
+        <ScrollViewer Grid.Row="1" 
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled"
+                      Margin="0,0,0,20">
+            <TextBlock x:Name="MessageText" 
+                       Text="Сообщение" 
+                       FontSize="14"
+                       TextWrapping="Wrap"
+                       LineHeight="20"/>
+        </ScrollViewer>
+        
+        <!-- Кнопки -->
+        <StackPanel Grid.Row="2" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right">
+            <ui:Button x:Name="OkButton" 
+                      Content="OK" 
+                      Appearance="Primary"
+                      Width="80"
+                      Height="32"
+                      Margin="0,0,8,0"
+                      Click="OkButton_Click"/>
+            <ui:Button x:Name="CancelButton" 
+                      Content="Отмена" 
+                      Appearance="Secondary"
+                      Width="80"
+                      Height="32"
+                      Visibility="Collapsed"
+                      Click="CancelButton_Click"/>
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>
