@@ -76,7 +76,15 @@ public partial class MainViewModel : ObservableObject
 	{
 		var assembly = Assembly.GetExecutingAssembly();
 		var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-		return $"v{version ?? assembly.GetName().Version?.ToString(3) ?? "0.0.1"}";
+		
+		// Обрезаем Git metadata (+commit_hash) для отображения чистой версии
+		if (!string.IsNullOrEmpty(version))
+		{
+			var cleanVersion = version.Split('+')[0];
+			return $"v{cleanVersion}";
+		}
+		
+		return $"v{assembly.GetName().Version?.ToString(3) ?? "0.0.1"}";
 	}
 
 	[ObservableProperty]

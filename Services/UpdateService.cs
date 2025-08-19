@@ -19,7 +19,16 @@ public class UpdateService : IUpdateService
         {
             var assembly = Assembly.GetExecutingAssembly();
             var version = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            return version ?? assembly.GetName().Version?.ToString(3) ?? "0.0.1";
+            
+            // Обрезаем Git metadata (+commit_hash) для чистой версии
+            if (!string.IsNullOrEmpty(version))
+            {
+                // Убираем всё после '+' (Git metadata)
+                var cleanVersion = version.Split('+')[0];
+                return cleanVersion;
+            }
+            
+            return assembly.GetName().Version?.ToString(3) ?? "0.0.1";
         }
     }
 
