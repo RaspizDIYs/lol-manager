@@ -197,24 +197,20 @@ public class UpdateService : IUpdateService
             
             var releases = System.Text.Json.JsonDocument.Parse(response);
             var changelog = new StringBuilder();
-            changelog.AppendLine("# История изменений\n");
             
             foreach (var release in releases.RootElement.EnumerateArray().Take(10)) // Берем последние 10 релизов
             {
                 var tagName = release.GetProperty("tag_name").GetString() ?? "Unknown";
-                var name = release.GetProperty("name").GetString() ?? tagName;
-                var publishedAt = release.GetProperty("published_at").GetString();
+                var name = release.GetProperty("name").GetString() ?? "";
                 var body = release.GetProperty("body").GetString() ?? "Нет описания";
                 var isPrerelease = release.GetProperty("prerelease").GetBoolean();
                 
                 var releaseType = isPrerelease ? " (Beta)" : "";
                 
-                changelog.AppendLine($"## {name}{releaseType}");
-                if (!string.IsNullOrEmpty(publishedAt) && DateTime.TryParse(publishedAt, out var date))
-                {
-                    changelog.AppendLine($"*Опубликовано: {date:dd.MM.yyyy}*\n");
-                }
+                // Форматируем как "версия - название"
+                var title = string.IsNullOrEmpty(name) ? tagName : $"{tagName} - {name}";
                 
+                changelog.AppendLine($"## {title}{releaseType}");
                 changelog.AppendLine(body);
                 changelog.AppendLine();
             }

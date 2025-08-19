@@ -29,16 +29,17 @@
         </StackPanel>
         
         <!-- Changelog -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-            <TextBox x:Name="ChangelogTextBox" 
-                     IsReadOnly="True" 
-                     TextWrapping="Wrap" 
-                     VerticalScrollBarVisibility="Auto"
-                     FontFamily="Consolas"
-                     FontSize="12"
-                     Background="Transparent"
-                     BorderThickness="0"/>
-        </ScrollViewer>
+        <ui:Card Grid.Row="1" MaxWidth="400" Margin="20,10,20,10" Padding="20" HorizontalAlignment="Center" VerticalAlignment="Stretch">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <RichTextBox x:Name="ChangelogRichTextBox" 
+                             IsReadOnly="True" 
+                             VerticalScrollBarVisibility="Disabled"
+                             FontSize="12"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             Padding="0"/>
+            </ScrollViewer>
+        </ui:Card>
         
         <!-- Кнопка закрытия -->
         <StackPanel Grid.Row="2" 

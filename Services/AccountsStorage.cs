@@ -12,6 +12,8 @@ namespace LolManager.Services;
 public class AccountsStorage : IAccountsStorage
 {
     private readonly string _dataFilePath;
+    private List<AccountRecord>? _cachedAccounts;
+    private DateTime _lastFileRead = DateTime.MinValue;
 
     public AccountsStorage()
     {
@@ -23,9 +25,16 @@ public class AccountsStorage : IAccountsStorage
     public IEnumerable<AccountRecord> LoadAll()
     {
         if (!File.Exists(_dataFilePath)) return Enumerable.Empty<AccountRecord>();
-        var json = File.ReadAllText(_dataFilePath);
-        var list = JsonConvert.DeserializeObject<List<AccountRecord>>(json) ?? new List<AccountRecord>();
-        return list.OrderBy(a => a.Username);
+        
+        var fileInfo = new FileInfo(_dataFilePath);
+        if (_cachedAccounts == null || fileInfo.LastWriteTime > _lastFileRead)
+        {
+            var json = File.ReadAllText(_dataFilePath);
+            _cachedAccounts = JsonConvert.DeserializeObject<List<AccountRecord>>(json) ?? new List<AccountRecord>();
+            _lastFileRead = fileInfo.LastWriteTime;
+        }
+        
+        return _cachedAccounts.OrderBy(a => a.Username);
     }
 
     public void Save(AccountRecord account)
@@ -33,13 +42,22 @@ public class AccountsStorage : IAccountsStorage
         var list = LoadAll().ToList();
         var existingIdx = list.FindIndex(a => string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
         if (existingIdx >= 0) list[existingIdx] = account; else list.Add(account);
+        
         File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
+        
+        // Обновляем кеш
+        _cachedAccounts = list;
+        _lastFileRead = DateTime.Now;
     }
 
     public void Delete(string username)
     {
         var list = LoadAll().Where(a => !string.Equals(a.Username, username, StringComparison.OrdinalIgnoreCase)).ToList();
         File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
+        
+        // Обновляем кеш
+        _cachedAccounts = list;
+        _lastFileRead = DateTime.Now;
     }
 
     public string Protect(string plain)

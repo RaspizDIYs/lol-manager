@@ -21,6 +21,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IRiotClientService _riotClientService;
     private readonly ILogger _logger;
     private readonly ISettingsService _settingsService;
+    private readonly Lazy<UpdateService> _updateService;
 
     public ObservableCollection<AccountRecord> Accounts { get; } = new();
 
@@ -31,9 +32,29 @@ public partial class MainViewModel : ObservableObject
 	private int selectedTabIndex;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAddAccount))]
     private string newUsername = string.Empty;
 
-    public string NewPassword { get; set; } = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanAddAccount))]
+    private string newPassword = string.Empty;
+
+    [ObservableProperty]
+    private string newNote = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FormTitle))]
+    [NotifyPropertyChangedFor(nameof(SubmitButtonText))]
+    private bool isEditMode;
+
+    [ObservableProperty]
+    private AccountRecord? editingAccount;
+
+    public bool CanAddAccount => !string.IsNullOrWhiteSpace(NewUsername) && !string.IsNullOrWhiteSpace(NewPassword);
+
+    public string FormTitle => IsEditMode ? "Редактировать аккаунт" : "Добавить аккаунт";
+
+    public string SubmitButtonText => IsEditMode ? "Сохранить" : "Добавить";
 
     [ObservableProperty]
     private AccountRecord? selectedAccount;
@@ -48,7 +69,7 @@ public partial class MainViewModel : ObservableObject
 	private LogFilters logFilters = new();
 
 	[ObservableProperty]
-	private string appVersion = "v0.0.1";
+	private string appVersion = $"v{System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}";
 
 	[ObservableProperty]
 	private UpdateSettings updateSettings = new();
@@ -76,6 +97,7 @@ public partial class MainViewModel : ObservableObject
 		_riotClientService = riotClientService;
 		_logger = logger;
 		_settingsService = settingsService;
+		_updateService = new Lazy<UpdateService>(() => new UpdateService(_logger, _settingsService));
 
 		foreach (var acc in _accountsStorage.LoadAll())
 			Accounts.Add(acc);
@@ -85,14 +107,16 @@ public partial class MainViewModel : ObservableObject
 		// Загружаем настройки обновлений
 		UpdateSettings = _settingsService.LoadUpdateSettings();
 		
-		// Подписываемся на изменения настроек для автоматического сохранения
-		PropertyChanged += (s, e) =>
-		{
-			if (e.PropertyName == nameof(UpdateSettings) && UpdateSettings != null)
-			{
-				_settingsService.SaveUpdateSettings(UpdateSettings);
-			}
-		};
+		        // Подписываемся на изменения настроек для автоматического сохранения
+        PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(UpdateSettings) && UpdateSettings != null)
+            {
+                _settingsService.SaveUpdateSettings(UpdateSettings);
+            }
+
+
+        };
 		
 		// Подписываемся на изменения фильтров логов
 		LogFilters.PropertyChanged += (s, e) => RefreshFilteredLogs();
@@ -107,12 +131,11 @@ public partial class MainViewModel : ObservableObject
 			{
 				if (e.PropertyName == nameof(UpdateSettings.UpdateChannel))
 				{
-					try
-					{
-						var updateService = new UpdateService(_logger, _settingsService);
-						updateService.RefreshUpdateSource();
-						_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
-					}
+									try
+				{
+					_updateService.Value.RefreshUpdateSource();
+					_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
+				}
 					catch (Exception ex)
 					{
 						_logger.Error($"Failed to refresh update source: {ex.Message}");
@@ -155,6 +178,43 @@ public partial class MainViewModel : ObservableObject
 	{
 		SelectedTabIndex = 3;
 		IsChangelogVisible = false;
+	}
+
+	[RelayCommand]
+	private void OpenAddAccount()
+	{
+		IsEditMode = false;
+		EditingAccount = null;
+		ClearForm();
+		SelectedTabIndex = 4;
+	}
+
+	[RelayCommand]
+	private void EditSelected()
+	{
+		if (SelectedAccount == null) return;
+		IsEditMode = true;
+		EditingAccount = SelectedAccount;
+		NewUsername = SelectedAccount.Username;
+		NewNote = SelectedAccount.Note;
+		NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
+		SelectedTabIndex = 4;
+	}
+
+	[RelayCommand]
+	private void GoBack()
+	{
+		SelectedTabIndex = 0;
+	}
+
+	[RelayCommand]
+	private void ClearForm()
+	{
+		NewUsername = string.Empty;
+		NewPassword = string.Empty;
+		NewNote = string.Empty;
+		IsEditMode = false;
+		EditingAccount = null;
 	}
 
 
@@ -201,8 +261,7 @@ public partial class MainViewModel : ObservableObject
 			
 			if (string.IsNullOrEmpty(ChangelogText))
 			{
-				var updateService = new UpdateService(_logger, _settingsService);
-				ChangelogText = await updateService.GetChangelogAsync();
+				ChangelogText = await _updateService.Value.GetChangelogAsync();
 			}
 		}
 		catch (Exception ex)
@@ -222,14 +281,13 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-			var updateService = new UpdateService(_logger, _settingsService);
-			var hasUpdates = await updateService.CheckForUpdatesAsync();
+			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync();
 			
 			if (hasUpdates)
 			{
 				Application.Current.Dispatcher.Invoke(() =>
 				{
-					var updateWindow = new UpdateWindow(updateService);
+					var updateWindow = new UpdateWindow(_updateService.Value);
 					updateWindow.Owner = Application.Current.MainWindow;
 					updateWindow.ShowDialog();
 				});
@@ -246,12 +304,11 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-			var updateService = new UpdateService(_logger, _settingsService);
-			var hasUpdates = await updateService.CheckForUpdatesAsync();
+			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync();
 			
 			if (hasUpdates)
 			{
-				var updateWindow = new UpdateWindow(updateService);
+				var updateWindow = new UpdateWindow(_updateService.Value);
 				updateWindow.Owner = Application.Current.MainWindow;
 				updateWindow.ShowDialog();
 			}
@@ -268,6 +325,19 @@ public partial class MainViewModel : ObservableObject
 	}
 
 	[RelayCommand]
+	private void Submit()
+	{
+		if (IsEditMode)
+		{
+			UpdateAccount();
+		}
+		else
+		{
+			AddAccount();
+		}
+	}
+
+	[RelayCommand]
 	private void AddAccount()
     {
         if (string.IsNullOrWhiteSpace(NewUsername) || string.IsNullOrWhiteSpace(NewPassword)) return;
@@ -275,13 +345,43 @@ public partial class MainViewModel : ObservableObject
         {
             Username = NewUsername.Trim(),
             EncryptedPassword = _accountsStorage.Protect(NewPassword),
+            Note = NewNote.Trim(),
             CreatedAt = DateTime.Now
         };
         _accountsStorage.Save(created);
         Accounts.Add(created);
-        NewUsername = string.Empty;
-        NewPassword = string.Empty;
+        ClearForm();
+        SelectedTabIndex = 0;
     }
+
+	private void UpdateAccount()
+	{
+		if (EditingAccount == null || string.IsNullOrWhiteSpace(NewUsername) || string.IsNullOrWhiteSpace(NewPassword)) return;
+		
+		// Удаляем старый аккаунт если имя изменилось
+		if (!string.Equals(EditingAccount.Username, NewUsername.Trim(), StringComparison.OrdinalIgnoreCase))
+		{
+			_accountsStorage.Delete(EditingAccount.Username);
+			Accounts.Remove(EditingAccount);
+		}
+		else
+		{
+			Accounts.Remove(EditingAccount);
+		}
+		
+		var updated = new AccountRecord
+		{
+			Username = NewUsername.Trim(),
+			EncryptedPassword = _accountsStorage.Protect(NewPassword),
+			Note = NewNote.Trim(),
+			CreatedAt = EditingAccount.CreatedAt
+		};
+		
+		_accountsStorage.Save(updated);
+		Accounts.Add(updated);
+		ClearForm();
+		SelectedTabIndex = 0;
+	}
 
 	private System.Threading.CancellationTokenSource? _logsCts;
 	private long _logsLastLength = 0;

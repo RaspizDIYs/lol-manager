@@ -1,4 +1,6 @@
 using System.Windows;
+using System.Windows.Documents;
+using System.Windows.Media;
 using LolManager.Services;
 
 namespace LolManager.Views;
@@ -21,12 +23,20 @@ public partial class ChangelogWindow : Window
         try
         {
             var changelog = await _updateService.GetChangelogAsync();
-            ChangelogTextBox.Text = changelog;
+            ParseAndDisplayMarkdown(changelog);
         }
         catch
         {
-            ChangelogTextBox.Text = "Не удалось загрузить changelog";
+            var document = new FlowDocument();
+            document.Blocks.Add(new Paragraph(new Run("Не удалось загрузить changelog")));
+            ChangelogRichTextBox.Document = document;
         }
+    }
+
+    private void ParseAndDisplayMarkdown(string markdown)
+    {
+        var converter = new Converters.MarkdownToFlowDocumentConverter();
+        ChangelogRichTextBox.Document = (FlowDocument)converter.Convert(markdown, typeof(FlowDocument), null!, System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private void SetupEventHandlers()

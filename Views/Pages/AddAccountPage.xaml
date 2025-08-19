@@ -1,0 +1,44 @@
+<UserControl x:Class="LolManager.Views.Pages.AddAccountPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             mc:Ignorable="d">
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+
+            <StackPanel Margin="20">
+                <TextBlock Text="{Binding FormTitle}" FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
+                
+                <StackPanel Margin="0,0,0,15">
+                    <TextBlock Text="Логин:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <ui:TextBox Width="250" HorizontalAlignment="Left" Text="{Binding NewUsername, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,0,15">
+                    <TextBlock Text="Пароль:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <ui:PasswordBox Width="250"  MinWidth="250" HorizontalAlignment="Left" x:Name="PasswordBox" PasswordChanged="PasswordBox_OnPasswordChanged" />
+                </StackPanel>
+
+                <StackPanel Margin="0,0,0,20">
+                    <TextBlock Text="Заметка:" FontWeight="SemiBold" Margin="0,0,0,5"/>
+                    <ui:TextBox Width="250" Height="80" HorizontalAlignment="Left" TextWrapping="Wrap" AcceptsReturn="True" 
+                               VerticalContentAlignment="Top" Text="{Binding NewNote, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal">
+                    <ui:Button Content="{Binding SubmitButtonText}" Appearance="Primary" Command="{Binding SubmitCommand}" 
+                              IsEnabled="{Binding CanAddAccount}" Margin="0,0,10,0"/>
+                    <ui:Button Content="Очистить" Appearance="Secondary" Command="{Binding ClearFormCommand}" Margin="0,0,10,0"/>
+                    <ui:Button Content="Назад" Command="{Binding GoBackCommand}"/>
+                </StackPanel>
+            </StackPanel>
+
+    </Grid>
+</UserControl>

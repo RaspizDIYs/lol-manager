@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Documents;
 using LolManager.Services;
 using System;
 using System.Threading.Tasks;
@@ -23,12 +24,20 @@ public partial class UpdateWindow : Window
         try
         {
             var changelog = await _updateService.GetChangelogAsync();
-            ChangelogTextBox.Text = changelog;
+            ParseAndDisplayMarkdown(changelog);
         }
         catch
         {
-            ChangelogTextBox.Text = "Не удалось загрузить changelog";
+            var document = new FlowDocument();
+            document.Blocks.Add(new Paragraph(new Run("Не удалось загрузить changelog")));
+            ChangelogRichTextBox.Document = document;
         }
+    }
+
+    private void ParseAndDisplayMarkdown(string markdown)
+    {
+        var converter = new Converters.MarkdownToFlowDocumentConverter();
+        ChangelogRichTextBox.Document = (FlowDocument)converter.Convert(markdown, typeof(FlowDocument), null!, System.Globalization.CultureInfo.CurrentCulture);
     }
 
     private void SetupEventHandlers()
