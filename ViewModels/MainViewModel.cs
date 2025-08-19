@@ -304,7 +304,7 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync();
+			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync(forceCheck: true);
 			
 			if (hasUpdates)
 			{

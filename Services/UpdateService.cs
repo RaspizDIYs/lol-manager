@@ -72,10 +72,13 @@ public class UpdateService : IUpdateService
         }
     }
 
-    public async Task<bool> CheckForUpdatesAsync()
+    public async Task<bool> CheckForUpdatesAsync(bool forceCheck = false)
     {
         try
         {
+            var checkType = forceCheck ? "manual" : "automatic";
+            _logger.Info($"Starting {checkType} update check...");
+            
             var updateManager = GetUpdateManager();
             if (updateManager == null)
             {
@@ -84,11 +87,24 @@ public class UpdateService : IUpdateService
             }
 
             var settings = _settingsService.LoadUpdateSettings();
+            _logger.Info($"Current version: {CurrentVersion}, Channel: {settings.UpdateChannel}");
             
-            // Проверяем интервал проверки (но не для ручной проверки)
-            var timeSinceLastCheck = DateTime.UtcNow - settings.LastCheckTime;
-            if (settings.AutoUpdateEnabled && timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
-                return false;
+            // Проверяем интервал проверки только для автоматических проверок
+            if (!forceCheck)
+            {
+                var timeSinceLastCheck = DateTime.UtcNow - settings.LastCheckTime;
+                _logger.Info($"Time since last check: {timeSinceLastCheck.TotalHours:F1} hours (interval: {settings.CheckIntervalHours} hours)");
+                
+                if (settings.AutoUpdateEnabled && timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
+                {
+                    _logger.Info("Skipping automatic update check - interval not reached. Use manual check to force.");
+                    return false;
+                }
+            }
+            else
+            {
+                _logger.Info("Force check - ignoring interval restrictions");
+            }
                 
             // Обновляем время последней проверки
             settings.LastCheckTime = DateTime.UtcNow;
@@ -103,12 +119,23 @@ public class UpdateService : IUpdateService
                 return true;
             }
             
+            _logger.Info("No updates available via Velopack, checking GitHub directly...");
+            
+            // Fallback: проверяем GitHub напрямую (для отладочной среды)
+            var hasGitHubUpdate = await CheckGitHubForUpdatesAsync(settings.UpdateChannel);
+            if (hasGitHubUpdate)
+            {
+                _logger.Info("Update available via GitHub API");
+                return true;
+            }
+            
             _logger.Info("No updates available");
             return false;
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to check for updates: {ex.Message}");
+            _logger.Debug($"Update check exception details: {ex}");
             return false;
         }
     }
@@ -222,6 +249,85 @@ public class UpdateService : IUpdateService
             _logger.Error($"Failed to fetch GitHub changelog: {ex.Message}");
             return string.Empty;
         }
+    }
+
+    private async Task<bool> CheckGitHubForUpdatesAsync(string channel)
+    {
+        try
+        {
+            const string repoOwner = "RaspizDIYs";
+            const string repoName = "lol-manager";
+            
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
+            
+            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
+            var response = await httpClient.GetStringAsync(url);
+            
+            var releases = System.Text.Json.JsonDocument.Parse(response);
+            
+            foreach (var release in releases.RootElement.EnumerateArray())
+            {
+                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
+                
+                // Фильтруем по каналу
+                if (channel == "stable" && isPrerelease)
+                    continue;
+                    
+                var tagName = release.GetProperty("tag_name").GetString() ?? "";
+                var releaseVersion = tagName.TrimStart('v');
+                
+                _logger.Info($"Comparing versions: current={CurrentVersion}, latest={releaseVersion}");
+                
+                // Простое сравнение версий
+                if (IsNewerVersion(CurrentVersion, releaseVersion))
+                {
+                    _logger.Info($"Found newer version: {releaseVersion}");
+                    return true;
+                }
+                
+                // Берем только первый подходящий релиз
+                break;
+            }
+            
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to check GitHub for updates: {ex.Message}");
+            return false;
+        }
+    }
+    
+    private bool IsNewerVersion(string currentVersion, string newVersion)
+    {
+        try
+        {
+            // Убираем возможные суффиксы и берем только числовую часть
+            var current = ParseVersion(currentVersion);
+            var latest = ParseVersion(newVersion);
+            
+            return latest > current;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+    
+    private Version ParseVersion(string versionString)
+    {
+        // Убираем 'v' в начале и берем только основную версию
+        var cleaned = versionString.TrimStart('v').Split('-')[0];
+        
+        // Если версия вида "0.0.4.0", берем только "0.0.4"
+        var parts = cleaned.Split('.');
+        if (parts.Length >= 3)
+        {
+            return new Version($"{parts[0]}.{parts[1]}.{parts[2]}");
+        }
+        
+        return Version.Parse(cleaned);
     }
 
     private string GetDefaultChangelog()
