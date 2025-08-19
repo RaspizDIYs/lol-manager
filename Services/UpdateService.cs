@@ -63,14 +63,14 @@ public class UpdateService : IUpdateService
         const string repoOwner = "RaspizDIYs"; 
         const string repoName = "lol-manager";
         
-        // Velopack GithubSource ожидает полный URL к API GitHub
-        var apiUrl = $"https://api.github.com/repos/{repoOwner}/{repoName}";
+        // Velopack GithubSource ожидает URL к репозиторию GitHub
+        var repoUrl = $"https://github.com/{repoOwner}/{repoName}";
         
         return channel switch
         {
-            "beta" => new GithubSource(apiUrl, null, true), // включает pre-releases
-            "stable" => new GithubSource(apiUrl, null, false), // только stable releases
-            _ => new GithubSource(apiUrl, null, false)
+            "beta" => new GithubSource(repoUrl, null, true), // включает pre-releases
+            "stable" => new GithubSource(repoUrl, null, false), // только stable releases
+            _ => new GithubSource(repoUrl, null, false)
         };
     }
 
@@ -130,28 +130,10 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Checking for updates on {settings.UpdateChannel} channel...");
             
-            try 
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo != null)
             {
-                var updateInfo = await updateManager.CheckForUpdatesAsync();
-                if (updateInfo != null)
-                {
-                    _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
-                    return true;
-                }
-                _logger.Info("No updates available via Velopack");
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"Velopack failed: {ex.Message}");
-            }
-            
-            _logger.Info("Checking GitHub directly as fallback...");
-            
-            // Fallback: проверяем GitHub напрямую 
-            var hasGitHubUpdate = await CheckGitHubForUpdatesAsync(settings.UpdateChannel);
-            if (hasGitHubUpdate)
-            {
-                _logger.Info("Update available via GitHub API");
+                _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
                 return true;
             }
             
@@ -172,33 +154,27 @@ public class UpdateService : IUpdateService
         {
             _logger.Info("Starting update process...");
             
-            // Сначала пытаемся через Velopack
             var updateManager = GetUpdateManager();
-            if (updateManager != null)
+            if (updateManager == null)
             {
-                try
-                {
-                    var updateInfo = await updateManager.CheckForUpdatesAsync();
-                    if (updateInfo != null)
-                    {
-                        _logger.Info($"Downloading update via Velopack: {updateInfo.TargetFullRelease.Version}");
-                        await updateManager.DownloadUpdatesAsync(updateInfo);
-                        
-                        _logger.Info("Update downloaded, applying and restarting...");
-                        updateManager.ApplyUpdatesAndRestart(updateInfo);
-                        
-                        return true;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Velopack update failed: {ex.Message}");
-                    _logger.Info("Falling back to direct GitHub download...");
-                }
+                _logger.Error("UpdateManager not available");
+                return false;
             }
+
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo == null)
+            {
+                _logger.Info("No updates available");
+                return false;
+            }
+
+            _logger.Info($"Downloading update: {updateInfo.TargetFullRelease.Version}");
+            await updateManager.DownloadUpdatesAsync(updateInfo);
             
-            // Fallback: скачиваем Setup.exe напрямую с GitHub
-            return await UpdateViaGitHubDirectAsync();
+            _logger.Info("Update downloaded, applying and restarting...");
+            updateManager.ApplyUpdatesAndRestart(updateInfo);
+            
+            return true;
         }
         catch (Exception ex)
         {
@@ -207,85 +183,7 @@ public class UpdateService : IUpdateService
         }
     }
 
-    private async Task<bool> UpdateViaGitHubDirectAsync()
-    {
-        try
-        {
-            const string repoOwner = "RaspizDIYs";
-            const string repoName = "lol-manager";
-            
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
-            
-            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            var response = await httpClient.GetStringAsync(url);
-            
-            var releases = System.Text.Json.JsonDocument.Parse(response);
-            
-            foreach (var release in releases.RootElement.EnumerateArray())
-            {
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                
-                // Только stable releases
-                if (isPrerelease) continue;
-                    
-                var tagName = release.GetProperty("tag_name").GetString() ?? "";
-                var releaseVersion = tagName.TrimStart('v');
-                
-                if (!IsNewerVersion(CurrentVersion, releaseVersion)) continue;
-                
-                // Ищем Setup.exe в assets
-                var assets = release.GetProperty("assets");
-                foreach (var asset in assets.EnumerateArray())
-                {
-                    var fileName = asset.GetProperty("name").GetString() ?? "";
-                    if (fileName.EndsWith("-Setup.exe") || fileName.EndsWith("Setup.exe"))
-                    {
-                        var downloadUrl = asset.GetProperty("browser_download_url").GetString();
-                        if (string.IsNullOrEmpty(downloadUrl)) continue;
-                        
-                        _logger.Info($"Downloading setup from: {downloadUrl}");
-                        
-                        // Скачиваем во временную папку
-                        var tempPath = Path.GetTempFileName();
-                        var setupPath = Path.ChangeExtension(tempPath, ".exe");
-                        
-                        using var fileStream = File.Create(setupPath);
-                        using var downloadStream = await httpClient.GetStreamAsync(downloadUrl);
-                        await downloadStream.CopyToAsync(fileStream);
-                        
-                        _logger.Info($"Setup downloaded to: {setupPath}");
-                        
-                        // Запускаем установщик
-                        var startInfo = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = setupPath,
-                            Arguments = "/S", // Тихая установка
-                            UseShellExecute = true
-                        };
-                        
-                        _logger.Info("Starting setup...");
-                        System.Diagnostics.Process.Start(startInfo);
-                        
-                        // Завершаем текущее приложение
-                        Environment.Exit(0);
-                        
-                        return true;
-                    }
-                }
-                
-                break; // Берем только первый подходящий релиз
-            }
-            
-            _logger.Error("No setup file found in the latest release");
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Direct GitHub update failed: {ex.Message}");
-            return false;
-        }
-    }
+
 
     public async Task<string> GetChangelogAsync()
     {
@@ -368,104 +266,6 @@ public class UpdateService : IUpdateService
         {
             _logger.Error($"Failed to fetch GitHub changelog: {ex.Message}");
             return string.Empty;
-        }
-    }
-
-    private async Task<bool> CheckGitHubForUpdatesAsync(string channel)
-    {
-        try
-        {
-            const string repoOwner = "RaspizDIYs";
-            const string repoName = "lol-manager";
-            
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
-            
-            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            var response = await httpClient.GetStringAsync(url);
-            
-            var releases = System.Text.Json.JsonDocument.Parse(response);
-            
-            foreach (var release in releases.RootElement.EnumerateArray())
-            {
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                
-                // Фильтруем по каналу
-                if (channel == "stable" && isPrerelease)
-                    continue;
-                    
-                var tagName = release.GetProperty("tag_name").GetString() ?? "";
-                var releaseVersion = tagName.TrimStart('v');
-                
-                _logger.Info($"Comparing versions: current={CurrentVersion}, latest={releaseVersion}");
-                
-                // Простое сравнение версий
-                if (IsNewerVersion(CurrentVersion, releaseVersion))
-                {
-                    _logger.Info($"Found newer version: {releaseVersion}");
-                    return true;
-                }
-                
-                // Берем только первый подходящий релиз
-                break;
-            }
-            
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to check GitHub for updates: {ex.Message}");
-            return false;
-        }
-    }
-    
-    private bool IsNewerVersion(string currentVersion, string newVersion)
-    {
-        try
-        {
-            // Убираем возможные суффиксы и берем только числовую часть
-            var current = ParseVersion(currentVersion);
-            var latest = ParseVersion(newVersion);
-            
-            return latest > current;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-    
-    private Version ParseVersion(string versionString)
-    {
-        try
-        {
-            // Убираем 'v' в начале и берем только основную версию
-            var cleaned = versionString.TrimStart('v').Split('-')[0].Split('+')[0];
-            
-            // Нормализуем версию до формата Major.Minor.Patch
-            var parts = cleaned.Split('.');
-            if (parts.Length == 3)
-            {
-                return new Version(cleaned);
-            }
-            else if (parts.Length >= 3)
-            {
-                return new Version($"{parts[0]}.{parts[1]}.{parts[2]}");
-            }
-            else if (parts.Length == 2)
-            {
-                return new Version($"{parts[0]}.{parts[1]}.0");
-            }
-            else if (parts.Length == 1)
-            {
-                return new Version($"{parts[0]}.0.0");
-            }
-            
-            return new Version("0.0.1");
-        }
-        catch
-        {
-            return new Version("0.0.1");
         }
     }
 

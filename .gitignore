@@ -104,4 +104,6 @@ paket-files/
 .DS_Store
 Thumbs.db
 
-
+# --- Test files ---
+TestVelopack*
+VelopackTest/
