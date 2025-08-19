@@ -112,16 +112,24 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Checking for updates on {settings.UpdateChannel} channel...");
             
-            var updateInfo = await updateManager.CheckForUpdatesAsync();
-            if (updateInfo != null)
+            try 
             {
-                _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
-                return true;
+                var updateInfo = await updateManager.CheckForUpdatesAsync();
+                if (updateInfo != null)
+                {
+                    _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
+                    return true;
+                }
+                _logger.Info("No updates available via Velopack");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Velopack failed: {ex.Message}");
             }
             
-            _logger.Info("No updates available via Velopack, checking GitHub directly...");
+            _logger.Info("Checking GitHub directly as fallback...");
             
-            // Fallback: проверяем GitHub напрямую (для отладочной среды)
+            // Fallback: проверяем GitHub напрямую 
             var hasGitHubUpdate = await CheckGitHubForUpdatesAsync(settings.UpdateChannel);
             if (hasGitHubUpdate)
             {
