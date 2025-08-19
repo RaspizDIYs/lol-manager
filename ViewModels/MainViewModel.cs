@@ -69,7 +69,14 @@ public partial class MainViewModel : ObservableObject
 	private LogFilters logFilters = new();
 
 	[ObservableProperty]
-	private string appVersion = $"v{System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)}";
+	private string appVersion = GetAppVersion();
+	
+	private static string GetAppVersion()
+	{
+		var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+		var version = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+		return $"v{version ?? assembly.GetName().Version?.ToString(3) ?? "0.0.1"}";
+	}
 
 	[ObservableProperty]
 	private UpdateSettings updateSettings = new();
@@ -304,9 +311,12 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync(forceCheck: true);
-			
-			if (hasUpdates)
+					var hasUpdates = await _updateService.Value.CheckForUpdatesAsync(forceCheck: true);
+
+		// Перезагружаем настройки после проверки обновлений для обновления UI
+		UpdateSettings = _settingsService.LoadUpdateSettings();
+		
+		if (hasUpdates)
 			{
 				var updateWindow = new UpdateWindow(_updateService.Value);
 				updateWindow.Owner = Application.Current.MainWindow;

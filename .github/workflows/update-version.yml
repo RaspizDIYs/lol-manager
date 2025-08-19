@@ -29,8 +29,6 @@ jobs:
       run: |
         $version = "${{ steps.get_version.outputs.VERSION }}"
         $content = Get-Content "LolManager.csproj"
-        $content = $content -replace '<AssemblyVersion>.*</AssemblyVersion>', "<AssemblyVersion>$version.0</AssemblyVersion>"
-        $content = $content -replace '<FileVersion>.*</FileVersion>', "<FileVersion>$version.0</FileVersion>"
         $content = $content -replace '<Version>.*</Version>', "<Version>$version</Version>"
         Set-Content "LolManager.csproj" $content
         Write-Output "Updated version to $version"

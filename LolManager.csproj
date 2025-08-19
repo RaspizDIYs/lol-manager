@@ -9,8 +9,6 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyTitle>LolManager</AssemblyTitle>
     <AssemblyDescription>League of Legends Manager</AssemblyDescription>
-    <AssemblyVersion>0.1.6.0</AssemblyVersion>
-    <FileVersion>0.1.6.0</FileVersion>
     <Version>0.1.7</Version>
   </PropertyGroup>
   <ItemGroup>

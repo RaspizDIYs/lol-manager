@@ -13,7 +13,15 @@ public class UpdateService : IUpdateService
     private readonly ISettingsService _settingsService;
     private UpdateManager? _updateManager;
 
-    public string CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.1";
+    public string CurrentVersion 
+    { 
+        get 
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            var version = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            return version ?? assembly.GetName().Version?.ToString(3) ?? "0.0.1";
+        }
+    }
 
     public UpdateService(ILogger logger, ISettingsService settingsService)
     {
@@ -187,12 +195,17 @@ public class UpdateService : IUpdateService
     {
         try
         {
+            _logger.Info("Getting changelog...");
+            
             // Сначала пытаемся получить changelog из GitHub API
             var githubChangelog = await GetGitHubChangelogAsync();
             if (!string.IsNullOrEmpty(githubChangelog))
             {
+                _logger.Info($"Got GitHub changelog, length: {githubChangelog.Length}");
                 return githubChangelog;
             }
+            
+            _logger.Warning("GitHub changelog is empty, trying Velopack...");
 
             // Если не удалось - пытаемся через Velopack
             var updateManager = GetUpdateManager();
@@ -201,18 +214,21 @@ public class UpdateService : IUpdateService
                 var updateInfo = await updateManager.CheckForUpdatesAsync();
                 if (updateInfo?.TargetFullRelease != null)
                 {
-                    var releaseNotes = $"Обновление до версии {updateInfo.TargetFullRelease.Version}\n" +
-                                       $"Пакет: {updateInfo.TargetFullRelease.PackageId}\n" +
-                                       "Подробности в GitHub Releases";
+                    var releaseNotes = $"## Обновление до версии {updateInfo.TargetFullRelease.Version}\n\n" +
+                                       $"**Пакет:** {updateInfo.TargetFullRelease.PackageId}\n\n" +
+                                       "Подробную информацию об изменениях можно найти в GitHub Releases.";
+                    _logger.Info("Using Velopack release notes");
                     return releaseNotes;
                 }
             }
             
+            _logger.Info("Using default changelog");
             return GetDefaultChangelog();
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to get changelog: {ex.Message}");
+            _logger.Debug($"Changelog exception details: {ex}");
             return GetDefaultChangelog();
         }
     }
@@ -325,17 +341,36 @@ public class UpdateService : IUpdateService
     
     private Version ParseVersion(string versionString)
     {
-        // Убираем 'v' в начале и берем только основную версию
-        var cleaned = versionString.TrimStart('v').Split('-')[0];
-        
-        // Если версия вида "0.0.4.0", берем только "0.0.4"
-        var parts = cleaned.Split('.');
-        if (parts.Length >= 3)
+        try
         {
-            return new Version($"{parts[0]}.{parts[1]}.{parts[2]}");
+            // Убираем 'v' в начале и берем только основную версию
+            var cleaned = versionString.TrimStart('v').Split('-')[0].Split('+')[0];
+            
+            // Нормализуем версию до формата Major.Minor.Patch
+            var parts = cleaned.Split('.');
+            if (parts.Length == 3)
+            {
+                return new Version(cleaned);
+            }
+            else if (parts.Length >= 3)
+            {
+                return new Version($"{parts[0]}.{parts[1]}.{parts[2]}");
+            }
+            else if (parts.Length == 2)
+            {
+                return new Version($"{parts[0]}.{parts[1]}.0");
+            }
+            else if (parts.Length == 1)
+            {
+                return new Version($"{parts[0]}.0.0");
+            }
+            
+            return new Version("0.0.1");
         }
-        
-        return Version.Parse(cleaned);
+        catch
+        {
+            return new Version("0.0.1");
+        }
     }
 
     private string GetDefaultChangelog()
