@@ -12,17 +12,17 @@ namespace LolManager;
 public partial class App : Application
 {
     private static System.Timers.Timer? _heartbeat;
-
+    
     protected override void OnStartup(StartupEventArgs e)
     {
-        base.OnStartup(e);
-        
-        // Инициализация Velopack для автообновлений
+        // Инициализация Velopack в самом начале
         try
         {
             VelopackApp.Build().Run();
         }
         catch { }
+        
+        base.OnStartup(e);
         
         try
         {
