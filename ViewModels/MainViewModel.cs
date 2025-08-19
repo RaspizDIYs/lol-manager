@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -73,8 +74,8 @@ public partial class MainViewModel : ObservableObject
 	
 	private static string GetAppVersion()
 	{
-		var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-		var version = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+		var assembly = Assembly.GetExecutingAssembly();
+		var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 		return $"v{version ?? assembly.GetName().Version?.ToString(3) ?? "0.0.1"}";
 	}
 
