@@ -106,4 +106,4 @@ Thumbs.db
 
 # --- Test files ---
 TestVelopack*
-VelopackTest/
+../VelopackTest/
