@@ -384,6 +384,34 @@ public class RiotClientService : IRiotClientService
             await Task.Delay(120);
             // Не читаем значение пароля (в CEF может кидать исключение), полагаемся на SetValue
 
+            // Найти и активировать чекбокс "Не выходить" (Remember Me)
+            try
+            {
+                var checkbox = riotContent.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                if (checkbox != null)
+                {
+                    var checkboxControl = checkbox.AsCheckBox();
+                    if (checkboxControl.IsChecked != true)
+                    {
+                        _logger.Info("UIA: activating 'Remember Me' checkbox");
+                        checkboxControl.Toggle();
+                    }
+                    else
+                    {
+                        _logger.Info("UIA: 'Remember Me' checkbox already checked");
+                    }
+                }
+                else
+                {
+                    _logger.Info("UIA: 'Remember Me' checkbox not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"UIA: failed to activate 'Remember Me' checkbox: {ex.Message}");
+            }
+            await Task.Delay(100);
+
             if (signInElement != null)
             {
                 _logger.UiEvent("UIA Login", "BUTTON_CLICK", "SignIn button found and clicked");
@@ -792,10 +820,7 @@ public class RiotClientService : IRiotClientService
 
         var variants = new object[]
         {
-            new { username, password, remember = true, persistLogin = true },
-            new { username, password, remember = true },
-            new { username, password, persistLogin = true },
-            new { username, password }
+            new { username, password, remember = true, persistLogin = true }
         };
 
         int idx = 0;

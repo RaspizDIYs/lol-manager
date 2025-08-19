@@ -34,9 +34,9 @@
             <ui:Button Appearance="Secondary" Content="Редактировать" Margin="6,0,0,0" Command="{Binding EditSelectedCommand}" />
             <ui:Button Appearance="Danger" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
             <ui:Button Appearance="Info" Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
-            <ui:Button Content="Перезапустить без входа" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
-            <ui:Button Content="Перезайти" Margin="6,0,0,0" Command="{Binding ReLoginCommand}" />
-            <ui:Button Content="Логи" Margin="6,0,0,0" Command="{Binding OpenLogsCommand}" />
+            <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
+
+
         </StackPanel>
 
         <!-- DataGrid -->
