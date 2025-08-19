@@ -3,10 +3,11 @@ using System.Windows.Documents;
 using LolManager.Services;
 using System;
 using System.Threading.Tasks;
+using Wpf.Ui.Controls;
 
 namespace LolManager.Views;
 
-public partial class UpdateWindow : Window
+public partial class UpdateWindow : FluentWindow
 {
     private readonly IUpdateService _updateService;
 
