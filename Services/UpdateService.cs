@@ -369,7 +369,20 @@ public class UpdateService : IUpdateService
                 // Проверяем есть ли Velopack файлы
                 var releaseFile = assetNames.FirstOrDefault(name => name.Equals("RELEASES", StringComparison.OrdinalIgnoreCase));
                 var nupkgFiles = assetNames.Where(name => name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)).ToList();
-                var fullNupkg = assetNames.FirstOrDefault(name => name.Contains("full") && name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
+                
+                // Ищем full .nupkg файл который соответствует версии релиза
+                var versionString = tagName.StartsWith("v") ? tagName.Substring(1) : tagName;
+                var fullNupkg = assetNames.FirstOrDefault(name => 
+                    name.Contains("full") && 
+                    name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) &&
+                    name.Contains(versionString));
+                
+                // Если не найден точный, берем любой full
+                if (fullNupkg == null)
+                {
+                    fullNupkg = assetNames.FirstOrDefault(name => name.Contains("full") && name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
+                }
+                
                 var deltaFiles = assetNames.Where(name => name.Contains("delta") && name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)).ToList();
                 
                 _logger.Info($"  RELEASES file: {releaseFile ?? "NOT FOUND"}");
