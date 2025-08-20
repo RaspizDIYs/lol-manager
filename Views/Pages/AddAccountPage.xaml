@@ -11,6 +11,10 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
 
             <StackPanel Margin="20">
@@ -37,10 +41,13 @@
                               IsEnabled="{Binding CanAddAccount}" Margin="0,0,10,0"/>
                     <ui:Button Content="Очистить" Appearance="Secondary" Command="{Binding ClearFormCommand}" Margin="0,0,10,0"/>
                     <ui:Button Content="Назад" Command="{Binding GoBackCommand}" Margin="0,0,10,0"/>
-                    <ui:Button Content="Экспорт" Appearance="Secondary" Command="{Binding ExportAccountsCommand}" Margin="0,0,10,0"/>
-                    <ui:Button Content="Импорт" Appearance="Secondary" Command="{Binding ImportAccountsCommand}"/>
                 </StackPanel>
             </StackPanel>
+        
+        <StackPanel Orientation="Vertical" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" Margin="0,95,0,0">
+            <ui:Button Content="Экспорт" Appearance="Secondary" Width="140" Height="40" Command="{Binding ExportAccountsCommand}" Margin="0,0,10,10"/>
+            <ui:Button Content="Импорт" Appearance="Secondary" Width="140" Height="40" Command="{Binding ImportAccountsCommand}"/>
+        </StackPanel>
 
     </Grid>
 </UserControl>
