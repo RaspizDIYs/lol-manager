@@ -36,7 +36,9 @@
                     <ui:Button Content="{Binding SubmitButtonText}" Appearance="Primary" Command="{Binding SubmitCommand}" 
                               IsEnabled="{Binding CanAddAccount}" Margin="0,0,10,0"/>
                     <ui:Button Content="Очистить" Appearance="Secondary" Command="{Binding ClearFormCommand}" Margin="0,0,10,0"/>
-                    <ui:Button Content="Назад" Command="{Binding GoBackCommand}"/>
+                    <ui:Button Content="Назад" Command="{Binding GoBackCommand}" Margin="0,0,10,0"/>
+                    <ui:Button Content="Экспорт" Appearance="Secondary" Command="{Binding ExportAccountsCommand}" Margin="0,0,10,0"/>
+                    <ui:Button Content="Импорт" Appearance="Secondary" Command="{Binding ImportAccountsCommand}"/>
                 </StackPanel>
             </StackPanel>
 

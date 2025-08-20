@@ -11,6 +11,9 @@ public interface IAccountsStorage
 
     string Protect(string plain);
     string Unprotect(string encrypted);
+    
+    void ExportAccounts(string filePath);
+    void ImportAccounts(string filePath);
 }
 
 

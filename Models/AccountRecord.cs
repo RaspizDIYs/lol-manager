@@ -10,4 +10,12 @@ public class AccountRecord
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
+public class ExportAccountRecord
+{
+    public string Username { get; set; } = string.Empty;
+    public string Password { get; set; } = string.Empty;
+    public string Note { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+}
+
 

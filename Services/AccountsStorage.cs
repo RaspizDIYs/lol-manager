@@ -116,6 +116,67 @@ public class AccountsStorage : IAccountsStorage
         var bytes = ProtectedData.Unprotect(protectedBytes, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
         return Encoding.UTF8.GetString(bytes);
     }
+
+    public void ExportAccounts(string filePath)
+    {
+        var accounts = LoadAll();
+        var exportAccounts = accounts.Select(acc => new ExportAccountRecord
+        {
+            Username = acc.Username,
+            Password = Unprotect(acc.EncryptedPassword),
+            Note = acc.Note,
+            CreatedAt = acc.CreatedAt
+        }).ToList();
+        
+        var json = JsonConvert.SerializeObject(exportAccounts, Formatting.Indented);
+        File.WriteAllText(filePath, json, Encoding.UTF8);
+    }
+
+    public void ImportAccounts(string filePath)
+    {
+        if (!File.Exists(filePath)) return;
+        
+        var json = File.ReadAllText(filePath, Encoding.UTF8);
+        var importAccounts = JsonConvert.DeserializeObject<List<ExportAccountRecord>>(json);
+        
+        if (importAccounts == null) return;
+        
+        var existingAccounts = LoadAll().ToList();
+        
+        foreach (var importAcc in importAccounts)
+        {
+            var account = new AccountRecord
+            {
+                Username = importAcc.Username,
+                EncryptedPassword = Protect(importAcc.Password),
+                Note = importAcc.Note,
+                CreatedAt = importAcc.CreatedAt
+            };
+            
+            var existingIdx = existingAccounts.FindIndex(a => 
+                string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
+            
+            if (existingIdx >= 0)
+            {
+                existingAccounts[existingIdx] = account;
+            }
+            else
+            {
+                existingAccounts.Add(account);
+            }
+        }
+        
+        if (File.Exists(_dataFilePath))
+        {
+            var backupPath = _dataFilePath + ".bak";
+            File.Copy(_dataFilePath, backupPath, overwrite: true);
+        }
+        
+        File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(existingAccounts, Formatting.Indented));
+        
+        _cachedAccounts = existingAccounts;
+        _lastFileRead = DateTime.Now;
+    }
 }
 
 

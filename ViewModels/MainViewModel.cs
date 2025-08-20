@@ -751,6 +751,68 @@ public partial class MainViewModel : ObservableObject
         };
     }
 
+    [RelayCommand]
+    private void ExportAccounts()
+    {
+        try
+        {
+            var saveFileDialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "JSON файлы (*.json)|*.json",
+                DefaultExt = ".json",
+                FileName = $"accounts_export_{DateTime.Now:yyyy-MM-dd}"
+            };
+
+            if (saveFileDialog.ShowDialog() == true)
+            {
+                _accountsStorage.ExportAccounts(saveFileDialog.FileName);
+                MessageWindow.Show("Аккаунты успешно экспортированы!", "Экспорт", MessageWindow.MessageType.Information);
+                _logger.Info($"Accounts exported to: {saveFileDialog.FileName}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Export error: {ex.Message}");
+            MessageWindow.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+        }
+    }
+
+    [RelayCommand]
+    private void ImportAccounts()
+    {
+        try
+        {
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "JSON файлы (*.json)|*.json",
+                DefaultExt = ".json"
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                var result = MessageWindow.Show("Импорт заменит существующие аккаунты с одинаковыми именами. Продолжить?", 
+                    "Подтверждение импорта", MessageWindow.MessageType.Warning, MessageWindow.MessageButtons.OkCancel);
+                
+                if (result == true)
+                {
+                    _accountsStorage.ImportAccounts(openFileDialog.FileName);
+                    
+                    Accounts.Clear();
+                    foreach (var acc in _accountsStorage.LoadAll())
+                        Accounts.Add(acc);
+                    
+                    MessageWindow.Show("Аккаунты успешно импортированы!", "Импорт", MessageWindow.MessageType.Information);
+                    _logger.Info($"Accounts imported from: {openFileDialog.FileName}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Import error: {ex.Message}");
+            MessageWindow.Show($"Ошибка импорта: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+        }
+    }
+
 
 }
 
