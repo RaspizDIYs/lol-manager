@@ -170,16 +170,33 @@ jobs:
             exit 1
           fi
           
-          echo "Adding release notes to stable release..."
+          echo "Adding release notes and ensuring stable release settings..."
           sleep 3
           
           curl -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
-            -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-stable-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*"}'
+            -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-stable-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*", "prerelease": false}'
           
-          echo "✅ Release notes added to stable release"
+          echo "✅ Release notes added and stable release properly configured"
+          
+          echo "Verifying latest release status..."
+          sleep 2
+          
+          # Проверяем что наш релиз помечен как latest
+          LATEST_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+            grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+          
+          if [ "$LATEST_RELEASE" = "v${{ steps.get-version.outputs.version }}" ]; then
+            echo "✅ This release is correctly marked as latest: $LATEST_RELEASE"
+          else
+            echo "⚠️  WARNING: Latest release is $LATEST_RELEASE, expected v${{ steps.get-version.outputs.version }}"
+            echo "GitHub should automatically assign latest to the most recent non-prerelease"
+          fi
           
           echo "✅ Stable release created successfully"
 
@@ -268,6 +285,21 @@ jobs:
             
             if echo "$PATCH_RESPONSE" | grep -q '"prerelease".*true'; then
               echo "✅ Beta release successfully marked as pre-release"
+              
+              # Дополнительная проверка что бета не является latest
+              echo "Verifying beta release is not latest..."
+              LATEST_RELEASE=$(curl -s \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+                grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+              
+              if [ "$LATEST_RELEASE" != "v${{ steps.get-version.outputs.version }}" ]; then
+                echo "✅ Confirmed: Beta release is NOT marked as latest (latest is: $LATEST_RELEASE)"
+              else
+                echo "⚠️  WARNING: Beta release incorrectly marked as latest!"
+              fi
+              
             else
               echo "⚠️  WARNING: Failed to mark beta release as pre-release"
               echo "API Response: $PATCH_RESPONSE"
