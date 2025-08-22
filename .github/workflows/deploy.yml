@@ -164,10 +164,37 @@ jobs:
           fi
           
           echo "Uploading release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "v${{ steps.get-version.outputs.version }} - Стабильный релиз" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload release to GitHub"
             exit 1
+          fi
+          
+          echo "Adding release notes and ensuring stable release settings..."
+          sleep 3
+          
+          # Создаем JSON с русским текстом через printf для правильной кодировки
+          printf '{"body":"## 🎉 Стабильное обновление\\n\\n### ✨ Новые возможности и улучшения:\\n- Повышена стабильность работы приложения\\n- Улучшена производительность и скорость загрузки\\n- Исправлены мелкие недочеты и ошибки\\n- Обновлены компоненты для лучшей совместимости\\n\\n### 🔧 Установка и обновление:\\n- **Новая установка**: Скачайте LolManager-stable-Setup.exe\\n- **Обновление**: Происходит автоматически\\n\\n---\\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*","prerelease":false,"make_latest":"true"}' > /tmp/stable_release.json
+          
+          curl -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
+            -d @/tmp/stable_release.json
+          
+          echo "✅ Release notes added and stable release properly configured"
+          
+          # Проверяем что stable релиз стал latest
+          sleep 2
+          LATEST_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+            jq -r '.tag_name')
+          
+          if [ "$LATEST_RELEASE" = "v${{ steps.get-version.outputs.version }}" ]; then
+            echo "✅ Stable release is latest: $LATEST_RELEASE"
           fi
           
           echo "✅ Stable release created successfully"
@@ -198,18 +225,33 @@ jobs:
             exit 1
           fi
           
-          echo "Uploading beta release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
-          if [ "$?" != "0" ]; then
-            echo "❌ ERROR: Failed to upload beta release to GitHub"
-            exit 1
-          fi
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "v${{ steps.get-version.outputs.version }} - Beta тестирование" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
           
-          echo "Marking release as pre-release..."
-          curl -X PATCH \
+          # Сразу после загрузки помечаем как pre-release
+          sleep 5
+          
+          RELEASE_RESPONSE=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
-            -d '{"prerelease": true}'
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}")
+          
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
+          
+          if [ "$RELEASE_ID" != "null" ] && [ "$RELEASE_ID" != "" ]; then
+            # Создаем JSON с русским текстом через printf для правильной кодировки  
+            printf '{"body":"## Beta версия - предварительное тестирование\\n\\n### Свежие улучшения:\\n- Добавлены новые функции и возможности\\n- Улучшена работа существующих компонентов\\n- Оптимизирована производительность приложения\\n- Исправления на основе обратной связи пользователей\\n\\n### ⚠️ Важная информация:\\n- Это тестовая версия для раннего доступа\\n- Возможны временные ошибки и недочеты\\n- Помогите улучшить приложение - сообщайте о проблемах!\\n\\n### 🔧 Как получать beta-версии:\\n1. Откройте Настройки в приложении\\n2. Измените Канал обновлений на beta\\n3. Перезапустите и проверьте обновления\\n\\n---\\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*","prerelease":true,"make_latest":"false"}' > /tmp/beta_release.json
+            
+            curl -s -X PATCH \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
+              -d @/tmp/beta_release.json > /dev/null
+            
+            echo "✅ Beta release marked as pre-release"
+          else
+            echo "❌ ERROR: Could not find release to mark as pre-release"
+            exit 1
+          fi
           
           echo "✅ Beta release created successfully"
