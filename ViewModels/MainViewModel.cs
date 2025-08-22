@@ -169,6 +169,8 @@ public partial class MainViewModel : ObservableObject
 				{
 					_updateService.Value.RefreshUpdateSource();
 					_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
+					_settingsService.SaveUpdateSettings(UpdateSettings);
+					_logger.Info("Update channel saved to update-settings.json");
 				}
 					catch (Exception ex)
 					{
