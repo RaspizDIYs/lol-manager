@@ -164,7 +164,7 @@ jobs:
           fi
           
           echo "Uploading release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload release to GitHub"
             exit 1
@@ -199,7 +199,7 @@ jobs:
           fi
           
           echo "Uploading beta release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --prerelease --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload beta release to GitHub"
             exit 1
