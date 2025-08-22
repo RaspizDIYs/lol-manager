@@ -176,8 +176,14 @@ jobs:
           curl -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json; charset=utf-8" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
-            -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-stable-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*", "prerelease": false}'
+            -d @- << 'EOF'
+{
+  "body": "## 🎉 Stable Release\n\n### ✨ New Features and Improvements:\n- Enhanced application stability\n- Improved performance and loading speed\n- Fixed minor bugs and issues\n- Updated components for better compatibility\n\n### 🔧 Installation and Updates:\n- **New installation**: Download `LolManager-stable-Setup.exe`\n- **Updates**: Happen automatically\n\n---\n💡 *Want to get updates faster? Switch to beta channel in settings!*",
+  "prerelease": false
+}
+EOF
           
           echo "✅ Release notes added and stable release properly configured"
           
@@ -237,8 +243,14 @@ jobs:
             curl -s -X PATCH \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json; charset=utf-8" \
               "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
-              -d '{"body": "## Beta версия - предварительное тестирование\n\n### Свежие улучшения:\n- Добавлены новые функции и возможности\n- Улучшена работа существующих компонентов\n- Оптимизирована производительность приложения\n- Исправления на основе обратной связи пользователей\n\n### ⚠️ Важная информация:\n- Это тестовая версия для раннего доступа\n- Возможны временные ошибки и недочеты\n- Помогите улучшить приложение - сообщайте о проблемах!\n\n### 🔧 Как получать beta-версии:\n1. Откройте **Настройки** в приложении\n2. Измените **Канал обновлений** на **beta**\n3. Перезапустите и проверьте обновления\n\n---\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*", "prerelease": true}' > /dev/null
+              -d @- > /dev/null << 'EOF'
+{
+  "body": "## Beta Version - Early Testing\n\n### Latest Improvements:\n- Added new features and capabilities\n- Improved existing component performance\n- Optimized application performance\n- Fixes based on user feedback\n\n### ⚠️ Important Information:\n- This is a test version for early access\n- Temporary bugs and issues are possible\n- Help improve the app - report issues!\n\n### 🔧 How to get beta versions:\n1. Open **Settings** in the application\n2. Change **Update Channel** to **beta**\n3. Restart and check for updates\n\n---\n✨ *Thanks for participating in testing! Your help makes the app better.*",
+  "prerelease": true
+}
+EOF
             
             echo "✅ Beta release marked as pre-release"
           else
