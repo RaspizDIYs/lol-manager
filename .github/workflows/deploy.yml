@@ -50,7 +50,7 @@ jobs:
             echo "Fetching latest stable release from GitHub API..."
             
             API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
-              -H "Authorization: token ${{ secrets.PERSONAL_TOKEN }}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/releases")
             
@@ -151,7 +151,7 @@ jobs:
           fi
           
           echo "Downloading existing releases..."
-          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.PERSONAL_TOKEN }}
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "⚠️  WARNING: Failed to download existing releases (this is OK for first release)"
           fi
@@ -164,7 +164,7 @@ jobs:
           fi
           
           echo "Uploading release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --token ${{ secrets.PERSONAL_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload release to GitHub"
             exit 1
@@ -186,7 +186,7 @@ jobs:
           fi
           
           echo "Downloading existing beta releases..."
-          vpk download github --repoUrl https://github.com/${{ github.repository }} --channel beta --token ${{ secrets.PERSONAL_TOKEN }}
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "⚠️  WARNING: Failed to download existing beta releases (this is OK for first beta release)"
           fi
@@ -199,7 +199,7 @@ jobs:
           fi
           
           echo "Uploading beta release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --prerelease --token ${{ secrets.PERSONAL_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --prerelease --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload beta release to GitHub"
             exit 1
