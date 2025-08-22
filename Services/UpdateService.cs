@@ -22,7 +22,7 @@ public class UpdateService : IUpdateService
             var assembly = Assembly.GetExecutingAssembly();
             var version = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
             
-            // Обрезаем Git metadata (+commit_hash) для чистой версии
+            // Обрезаем Git metadata (+commit_hash) но оставляем beta суффикс
             if (!string.IsNullOrEmpty(version))
             {
                 // Убираем всё после '+' (Git metadata)
@@ -715,15 +715,43 @@ public class UpdateService : IUpdateService
                 return false;
             }
             
+            var fullCurrentVersion = CurrentVersion;
+            _logger.Info($"Comparing with current version: {fullCurrentVersion}");
+            
+            // Дополнительная диагностика версии
+            var assembly = Assembly.GetExecutingAssembly();
+            var rawVersion = assembly.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            _logger.Info($"Raw assembly version: '{rawVersion}', Cleaned: '{fullCurrentVersion}'");
+            
+            // Определяем текущую базовую версию и beta номер
+            string currentBaseVersion;
+            int currentBetaNumber = 0;
+            bool isCurrentBeta = false;
+            
+            if (fullCurrentVersion.Contains("-beta."))
+            {
+                var parts = fullCurrentVersion.Split("-beta.");
+                currentBaseVersion = parts[0];
+                isCurrentBeta = true;
+                if (parts.Length > 1 && int.TryParse(parts[1], out currentBetaNumber))
+                {
+                    _logger.Info($"Current beta version: {currentBaseVersion} beta #{currentBetaNumber}");
+                }
+            }
+            else
+            {
+                currentBaseVersion = fullCurrentVersion;
+                _logger.Info($"Current stable version: {currentBaseVersion}");
+            }
+            
             Version currentVersion;
             try
             {
-                currentVersion = Version.Parse(CurrentVersion);
-                _logger.Info($"Comparing with current version: {currentVersion}");
+                currentVersion = Version.Parse(currentBaseVersion);
             }
             catch (Exception versionEx)
             {
-                _logger.Error($"Failed to parse current version '{CurrentVersion}': {versionEx.Message}");
+                _logger.Error($"Failed to parse current base version '{currentBaseVersion}': {versionEx.Message}");
                 return false;
             }
             
@@ -751,37 +779,91 @@ public class UpdateService : IUpdateService
                 // Парсим версию из тега (убираем 'v' если есть)
                 var versionString = tagName.StartsWith("v") ? tagName.Substring(1) : tagName;
                 
-                if (Version.TryParse(versionString, out var releaseVersion))
+                // Для beta версий убираем суффикс -beta.XX только для парсинга Version
+                string parseableVersion = versionString;
+                if (versionString.Contains("-beta."))
+                {
+                    var betaParts = versionString.Split("-beta.");
+                    if (betaParts.Length >= 2)
+                    {
+                        parseableVersion = betaParts[0]; // Берем только основную версию для парсинга
+                    }
+                }
+                
+                if (Version.TryParse(parseableVersion, out var releaseVersion))
                 {
                     try
                     {
-                        // Специальная логика сравнения версий для разных каналов
+                        // Новая логика сравнения версий
                         bool isNewerVersion = false;
                         
                         if (channel == "stable")
                         {
                             // Для stable канала: только Major.Minor.Build больше текущей
                             // Защищаемся от ArgumentOutOfRangeException если Version имеет меньше компонентов
-                            var releaseComponents = new int[] {
-                                releaseVersion.Major,
-                                Math.Max(0, releaseVersion.Minor),
-                                Math.Max(0, releaseVersion.Build >= 0 ? releaseVersion.Build : 0)
-                            };
-                            
-                            var currentComponents = new int[] {
-                                currentVersion.Major,
-                                Math.Max(0, currentVersion.Minor),
-                                Math.Max(0, currentVersion.Build >= 0 ? currentVersion.Build : 0)
-                            };
-                            
-                            var stableReleaseVersion = new Version(releaseComponents[0], releaseComponents[1], releaseComponents[2]);
-                            var stableCurrentVersion = new Version(currentComponents[0], currentComponents[1], currentComponents[2]);
-                            isNewerVersion = stableReleaseVersion > stableCurrentVersion;
+                            if (!isPrerelease)
+                            {
+                                var releaseComponents = new int[] {
+                                    releaseVersion.Major,
+                                    Math.Max(0, releaseVersion.Minor),
+                                    Math.Max(0, releaseVersion.Build >= 0 ? releaseVersion.Build : 0)
+                                };
+                                
+                                var currentComponents = new int[] {
+                                    currentVersion.Major,
+                                    Math.Max(0, currentVersion.Minor),
+                                    Math.Max(0, currentVersion.Build >= 0 ? currentVersion.Build : 0)
+                                };
+                                
+                                var stableReleaseVersion = new Version(releaseComponents[0], releaseComponents[1], releaseComponents[2]);
+                                var stableCurrentVersion = new Version(currentComponents[0], currentComponents[1], currentComponents[2]);
+                                isNewerVersion = stableReleaseVersion > stableCurrentVersion;
+                            }
                         }
                         else
                         {
-                            // Для beta канала: любая версия больше текущей
-                            isNewerVersion = releaseVersion > currentVersion;
+                            // Для beta канала: ищем обновления среди beta версий той же базовой версии
+                            if (isPrerelease && versionString.Contains("-beta."))
+                            {
+                                // Извлекаем базовую версию релиза
+                                var releaseParts = versionString.Split("-beta.");
+                                if (releaseParts.Length >= 2)
+                                {
+                                    var releaseBaseVersion = releaseParts[0];
+                                    
+                                    // Сравниваем beta только в рамках той же базовой версии
+                                    if (releaseBaseVersion == currentBaseVersion && int.TryParse(releaseParts[1], out var releaseBetaNum))
+                                    {
+                                        if (isCurrentBeta)
+                                        {
+                                            // Текущая тоже beta - сравниваем номера
+                                            if (releaseBetaNum > currentBetaNumber)
+                                            {
+                                                isNewerVersion = true;
+                                                _logger.Info($"Found newer beta: {tagName}(#{releaseBetaNum}) > current #{currentBetaNumber}");
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // Текущая стабильная, beta всегда новее
+                                            isNewerVersion = true;
+                                            _logger.Info($"Found beta version {tagName}(#{releaseBetaNum}) for stable base {currentBaseVersion}");
+                                        }
+                                    }
+                                    else if (Version.TryParse(releaseBaseVersion, out var releaseBase) && releaseBase > currentVersion)
+                                    {
+                                        // Beta версия с более новой базовой версией
+                                        isNewerVersion = true;
+                                        _logger.Info($"Found beta with newer base version: {releaseBaseVersion} > {currentBaseVersion}");
+                                    }
+                                }
+                            }
+                            else if (!isPrerelease && releaseVersion > currentVersion)
+                            {
+                                // Стабильный релиз новее текущей версии
+                                isNewerVersion = true;
+                                _logger.Info($"Found newer stable version: {releaseVersion} > {currentVersion}");
+                            }
                         }
                         
                         if (isNewerVersion)
@@ -798,7 +880,11 @@ public class UpdateService : IUpdateService
                 }
                 else
                 {
-                    _logger.Warning($"Could not parse version from tag: {tagName}");
+                    // Логируем только если это может быть релевантная версия
+                    if (versionString.Contains("-beta.") || !versionString.StartsWith("0.1.25"))
+                    {
+                        _logger.Warning($"Could not parse version from tag: {tagName}");
+                    }
                 }
                 }
                 catch (Exception releaseEx)
@@ -815,6 +901,31 @@ public class UpdateService : IUpdateService
             _logger.Error($"Failed to check updates via GitHub API: {ex.Message}");
             return false;
         }
+    }
+
+    private bool TryParseBetaNumber(string versionTag, out int betaNumber)
+    {
+        betaNumber = 0;
+        
+        if (string.IsNullOrEmpty(versionTag)) return false;
+        
+        // Ищем паттерн -beta.XX
+        var betaIndex = versionTag.IndexOf("-beta.", StringComparison.OrdinalIgnoreCase);
+        if (betaIndex < 0) return false;
+        
+        var betaStart = betaIndex + "-beta.".Length;
+        if (betaStart >= versionTag.Length) return false;
+        
+        var betaString = versionTag.Substring(betaStart);
+        
+        // Может содержать дополнительные символы после числа, берем только число
+        var match = System.Text.RegularExpressions.Regex.Match(betaString, @"^(\d+)");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out betaNumber))
+        {
+            return true;
+        }
+        
+        return false;
     }
 
     private string GetDefaultChangelog()

@@ -95,12 +95,10 @@ jobs:
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
             
           else
-            # Для develop добавляем prerelease суффикс (SemVer2 совместимо)
-            echo "Generating develop version with prerelease suffix..."
+            # Для develop автоматически управляем beta версиями
+            echo "Managing beta version from: $CURRENT_VERSION"
             
             # Получаем последний стабильный релиз
-            echo "Fetching latest stable release to calculate beta number..."
-            
             API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
@@ -110,45 +108,46 @@ jobs:
             RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_STATUS:/d')
             
             if [ "$HTTP_STATUS" == "200" ]; then
-              LAST_STABLE_TAG=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
-              echo "Last stable tag: $LAST_STABLE_TAG"
-              
-              # Получаем последний beta релиз для текущей версии
-              LAST_BETA_TAG=$(echo "$RESPONSE_BODY" | jq -r --arg version "v${CURRENT_VERSION}-beta" '[.[] | select(.prerelease == true and (.tag_name | startswith($version)))][0].tag_name // ""')
-              echo "Last beta for v${CURRENT_VERSION}: $LAST_BETA_TAG"
-              
-              if [ -n "$LAST_BETA_TAG" ] && [ "$LAST_BETA_TAG" != "null" ] && [ "$LAST_BETA_TAG" != "" ]; then
-                # Извлекаем beta номер из последнего beta релиза
-                BETA_NUMBER=$(echo "$LAST_BETA_TAG" | grep -oE 'beta\.([0-9]+)' | cut -d. -f2)
-                if [[ "$BETA_NUMBER" =~ ^[0-9]+$ ]]; then
-                  NEXT_BETA=$((BETA_NUMBER + 1))
-                else
-                  NEXT_BETA=1
-                fi
-              else
-                # Первый beta для этой версии
-                NEXT_BETA=1
-              fi
+              LATEST_STABLE=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
+              LATEST_STABLE_VERSION=${LATEST_STABLE#v}
+              echo "Latest stable version: $LATEST_STABLE_VERSION"
             else
-              echo "⚠️ WARNING: Failed to fetch releases, using commit-based beta number"
-              # Fallback: используем коммиты с последнего стабильного тега
-              LAST_TAG=$(git describe --tags --abbrev=0 --match="v*.*.*" 2>/dev/null || echo "")
-              if [ -n "$LAST_TAG" ]; then
-                COMMITS_SINCE_TAG=$(git rev-list --count "${LAST_TAG}..HEAD")
-                NEXT_BETA=$((COMMITS_SINCE_TAG > 0 ? COMMITS_SINCE_TAG : 1))
-              else
-                NEXT_BETA=1
-              fi
+              echo "⚠️ WARNING: Failed to fetch releases, using fallback"
+              LATEST_STABLE_VERSION="0.1.26"
             fi
             
-            if ! [[ "$NEXT_BETA" =~ ^[0-9]+$ ]]; then
-              echo "❌ ERROR: Invalid beta number: $NEXT_BETA"
-              exit 1
+            if [[ "$CURRENT_VERSION" =~ -beta\.[0-9]+$ ]]; then
+              # Текущая версия уже beta - инкрементируем
+              BASE_VERSION=$(echo "$CURRENT_VERSION" | sed 's/-beta\.[0-9]*$//')
+              CURRENT_BETA=$(echo "$CURRENT_VERSION" | grep -oE 'beta\.([0-9]+)' | cut -d. -f2)
+              
+              # Проверяем нужно ли обновить базовую версию до latest stable
+              if [ "$BASE_VERSION" != "$LATEST_STABLE_VERSION" ]; then
+                echo "Updating base version from $BASE_VERSION to $LATEST_STABLE_VERSION"
+                NEW_VERSION="${LATEST_STABLE_VERSION}-beta.1"
+              else
+                NEXT_BETA=$((CURRENT_BETA + 1))
+                NEW_VERSION="${BASE_VERSION}-beta.${NEXT_BETA}"
+              fi
+            else
+              # Текущая версия стабильная - создаем первую beta на базе latest stable
+              echo "Creating first beta for stable version $LATEST_STABLE_VERSION"
+              NEW_VERSION="${LATEST_STABLE_VERSION}-beta.1"
             fi
-
-            VERSION="${CURRENT_VERSION}-beta.${NEXT_BETA}"
-            echo "Develop version with reset beta suffix: $VERSION"
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            
+            echo "New version: $NEW_VERSION"
+            
+            # Обновляем версию в .csproj файле  
+            sed -i "s/<Version>${CURRENT_VERSION}<\/Version>/<Version>${NEW_VERSION}<\/Version>/" LolManager.csproj
+            
+            # Коммитим изменения версии с [skip ci] чтобы не запустить workflow снова
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"  
+            git add LolManager.csproj
+            git commit -m "Auto-increment version to ${NEW_VERSION} [skip ci]"
+            git push
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
           fi
 
       - name: Install .NET
