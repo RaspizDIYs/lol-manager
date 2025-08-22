@@ -98,19 +98,56 @@ jobs:
             # Для develop добавляем prerelease суффикс (SemVer2 совместимо)
             echo "Generating develop version with prerelease suffix..."
             
-            DEVELOP_COMMIT_COUNT=$(git rev-list --count HEAD)
-            if [ "$?" != "0" ]; then
-              echo "❌ ERROR: Failed to get commit count"
-              exit 1
+            # Получаем последний стабильный релиз
+            echo "Fetching latest stable release to calculate beta number..."
+            
+            API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases")
+            
+            HTTP_STATUS=$(echo "$API_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_STATUS:/d')
+            
+            if [ "$HTTP_STATUS" == "200" ]; then
+              LAST_STABLE_TAG=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
+              echo "Last stable tag: $LAST_STABLE_TAG"
+              
+              # Получаем последний beta релиз для текущей версии
+              LAST_BETA_TAG=$(echo "$RESPONSE_BODY" | jq -r --arg version "v${CURRENT_VERSION}-beta" '[.[] | select(.prerelease == true and (.tag_name | startswith($version)))][0].tag_name // ""')
+              echo "Last beta for v${CURRENT_VERSION}: $LAST_BETA_TAG"
+              
+              if [ -n "$LAST_BETA_TAG" ] && [ "$LAST_BETA_TAG" != "null" ] && [ "$LAST_BETA_TAG" != "" ]; then
+                # Извлекаем beta номер из последнего beta релиза
+                BETA_NUMBER=$(echo "$LAST_BETA_TAG" | grep -oE 'beta\.([0-9]+)' | cut -d. -f2)
+                if [[ "$BETA_NUMBER" =~ ^[0-9]+$ ]]; then
+                  NEXT_BETA=$((BETA_NUMBER + 1))
+                else
+                  NEXT_BETA=1
+                fi
+              else
+                # Первый beta для этой версии
+                NEXT_BETA=1
+              fi
+            else
+              echo "⚠️ WARNING: Failed to fetch releases, using commit-based beta number"
+              # Fallback: используем коммиты с последнего стабильного тега
+              LAST_TAG=$(git describe --tags --abbrev=0 --match="v*.*.*" 2>/dev/null || echo "")
+              if [ -n "$LAST_TAG" ]; then
+                COMMITS_SINCE_TAG=$(git rev-list --count "${LAST_TAG}..HEAD")
+                NEXT_BETA=$((COMMITS_SINCE_TAG > 0 ? COMMITS_SINCE_TAG : 1))
+              else
+                NEXT_BETA=1
+              fi
             fi
             
-            if ! [[ "$DEVELOP_COMMIT_COUNT" =~ ^[0-9]+$ ]]; then
-              echo "❌ ERROR: Invalid commit count: $DEVELOP_COMMIT_COUNT"
+            if ! [[ "$NEXT_BETA" =~ ^[0-9]+$ ]]; then
+              echo "❌ ERROR: Invalid beta number: $NEXT_BETA"
               exit 1
             fi
-            
-            VERSION="${CURRENT_VERSION}-beta.${DEVELOP_COMMIT_COUNT}"
-            echo "Develop version with prerelease suffix: $VERSION"
+
+            VERSION="${CURRENT_VERSION}-beta.${NEXT_BETA}"
+            echo "Develop version with reset beta suffix: $VERSION"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
