@@ -23,4 +23,11 @@
   <ItemGroup>
     <Resource Include="icon.ico" />
   </ItemGroup>
-</Project>
+  <ItemGroup>
+    <!-- Исключаем скрипт релизов из компиляции основного проекта -->
+    <Compile Remove="Realeser\**" />
+    <EmbeddedResource Remove="Realeser\**" />
+    <None Remove="Realeser\**" />
+  </ItemGroup>
+
+  </Project>
