@@ -95,8 +95,8 @@ jobs:
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
             
           else
-            # Для develop добавляем только автоинкремент  
-            echo "Generating develop version with auto-increment..."
+            # Для develop добавляем prerelease суффикс (SemVer2 совместимо)
+            echo "Generating develop version with prerelease suffix..."
             
             DEVELOP_COMMIT_COUNT=$(git rev-list --count HEAD)
             if [ "$?" != "0" ]; then
@@ -109,8 +109,8 @@ jobs:
               exit 1
             fi
             
-            VERSION="${CURRENT_VERSION}.${DEVELOP_COMMIT_COUNT}"
-            echo "Develop version with auto-increment: $VERSION"
+            VERSION="${CURRENT_VERSION}-beta.${DEVELOP_COMMIT_COUNT}"
+            echo "Develop version with prerelease suffix: $VERSION"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
