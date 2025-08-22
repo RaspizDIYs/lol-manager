@@ -85,11 +85,13 @@ public class RiotClientService : IRiotClientService
         }
         // 1b) Убедиться, что RC lockfile готов (синхронно)
         await WaitForRcLockfileAsync(TimeSpan.FromSeconds(10));
-        // 1c) Если холодный старт — ждём только появление окна RC, не ждём CEF
+        // 1c) Если холодный старт — ждём дольше для готовности формы
         if (coldStart)
         {
             _logger.Info("Cold start: waiting for RiotClientUx window...");
-            await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(3));
+            await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(6));
+            _logger.Info("Cold start: additional delay for UI initialization...");
+            await Task.Delay(3000); // Дополнительная пауза для готовности формы
         }
         // 1d) Запустить прогрев RSO в фоне (не блокируем UIA)
         _ = Task.Run(async () => { try { await WarmUpRsoAsync(); } catch { } });
@@ -211,13 +213,6 @@ public class RiotClientService : IRiotClientService
             await Task.Delay(200);
             while (DateTime.UtcNow < deadline)
             {
-                try
-                {
-                    var hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
-                    ShowWindow(hwnd, ShowWindowCommands.Restore);
-                    SetForegroundWindow(hwnd);
-                }
-                catch { }
 
                 riotContent ??= window.FindFirstDescendant(cf =>
                                         cf.ByClassName("Chrome_RenderWidgetHostHWND")

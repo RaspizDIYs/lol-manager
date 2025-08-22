@@ -64,19 +64,19 @@ public class UpdateService : IUpdateService
         const string repoOwner = "RaspizDIYs"; 
         const string repoName = "lol-manager";
         
-        // Velopack GithubSource ожидает URL к репозиторию GitHub
         var repoUrl = $"https://github.com/{repoOwner}/{repoName}";
         
         _logger.Info($"Creating GithubSource for {repoUrl} (channel: {channel})");
-        _logger.Info($"Repository owner: {repoOwner}, name: {repoName}");
         
         try
         {
             var includePrerelease = channel == "beta";
-            _logger.Info($"Include prerelease: {includePrerelease}");
+            var channelName = channel == "beta" ? "beta" : "stable";
+            
+            _logger.Info($"Channel: {channelName}, Include prerelease: {includePrerelease}");
             
             var source = new GithubSource(repoUrl, null, includePrerelease);
-            _logger.Info($"GithubSource created successfully for channel '{channel}'");
+            _logger.Info($"GithubSource created successfully for channel '{channelName}'");
             
             return source;
         }
@@ -528,20 +528,69 @@ public class UpdateService : IUpdateService
             const string repoName = "lol-manager";
             
             using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromSeconds(30); // Таймаут 30 секунд
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
             
             var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            var response = await httpClient.GetStringAsync(url);
-            var releases = System.Text.Json.JsonDocument.Parse(response);
+            _logger.Info($"Making request to: {url}");
             
-            var currentVersion = Version.Parse(CurrentVersion);
-            _logger.Info($"Comparing with current version: {currentVersion}");
+            string response;
+            try
+            {
+                response = await httpClient.GetStringAsync(url);
+                if (string.IsNullOrEmpty(response))
+                {
+                    _logger.Warning("GitHub API returned empty response");
+                    return false;
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.Error($"HTTP error checking GitHub API: {httpEx.Message}");
+                return false;
+            }
+            catch (TaskCanceledException timeoutEx)
+            {
+                _logger.Error($"Timeout checking GitHub API: {timeoutEx.Message}");
+                return false;
+            }
+            JsonDocument releases;
+            try
+            {
+                releases = System.Text.Json.JsonDocument.Parse(response);
+            }
+            catch (JsonException jsonEx)
+            {
+                _logger.Error($"Failed to parse GitHub API JSON response: {jsonEx.Message}");
+                return false;
+            }
+            
+            Version currentVersion;
+            try
+            {
+                currentVersion = Version.Parse(CurrentVersion);
+                _logger.Info($"Comparing with current version: {currentVersion}");
+            }
+            catch (Exception versionEx)
+            {
+                _logger.Error($"Failed to parse current version '{CurrentVersion}': {versionEx.Message}");
+                return false;
+            }
             
             foreach (var release in releases.RootElement.EnumerateArray())
             {
-                var tagName = release.GetProperty("tag_name").GetString() ?? "";
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                var isDraft = release.GetProperty("draft").GetBoolean();
+                try
+                {
+                    // Безопасное извлечение свойств из JSON
+                    var tagName = release.TryGetProperty("tag_name", out var tagProp) ? tagProp.GetString() ?? "" : "";
+                    var isPrerelease = release.TryGetProperty("prerelease", out var preProp) && preProp.GetBoolean();
+                    var isDraft = release.TryGetProperty("draft", out var draftProp) && draftProp.GetBoolean();
+                    
+                    if (string.IsNullOrEmpty(tagName))
+                    {
+                        _logger.Warning("Release has empty or missing tag_name, skipping");
+                        continue;
+                    }
                 
                 // Пропускаем драфты
                 if (isDraft) continue;
@@ -554,17 +603,58 @@ public class UpdateService : IUpdateService
                 
                 if (Version.TryParse(versionString, out var releaseVersion))
                 {
-                    _logger.Info($"Checking release {tagName} (version: {releaseVersion}) vs current {currentVersion}");
-                    
-                    if (releaseVersion > currentVersion)
+                    try
                     {
-                        _logger.Info($"Found newer version: {releaseVersion} > {currentVersion}");
-                        return true;
+                        // Специальная логика сравнения версий для разных каналов
+                        bool isNewerVersion = false;
+                        
+                        if (channel == "stable")
+                        {
+                            // Для stable канала: только Major.Minor.Build больше текущей
+                            // Защищаемся от ArgumentOutOfRangeException если Version имеет меньше компонентов
+                            var releaseComponents = new int[] {
+                                releaseVersion.Major,
+                                Math.Max(0, releaseVersion.Minor),
+                                Math.Max(0, releaseVersion.Build >= 0 ? releaseVersion.Build : 0)
+                            };
+                            
+                            var currentComponents = new int[] {
+                                currentVersion.Major,
+                                Math.Max(0, currentVersion.Minor),
+                                Math.Max(0, currentVersion.Build >= 0 ? currentVersion.Build : 0)
+                            };
+                            
+                            var stableReleaseVersion = new Version(releaseComponents[0], releaseComponents[1], releaseComponents[2]);
+                            var stableCurrentVersion = new Version(currentComponents[0], currentComponents[1], currentComponents[2]);
+                            isNewerVersion = stableReleaseVersion > stableCurrentVersion;
+                        }
+                        else
+                        {
+                            // Для beta канала: любая версия больше текущей
+                            isNewerVersion = releaseVersion > currentVersion;
+                        }
+                        
+                        if (isNewerVersion)
+                        {
+                            _logger.Info($"Found newer version: {releaseVersion} > {currentVersion} (channel: {channel})");
+                            return true;
+                        }
+                    }
+                    catch (Exception versionEx)
+                    {
+                        _logger.Warning($"Error comparing versions {releaseVersion} vs {currentVersion}: {versionEx.Message}");
+                        continue; // Переходим к следующей версии
                     }
                 }
                 else
                 {
                     _logger.Warning($"Could not parse version from tag: {tagName}");
+                }
+                }
+                catch (Exception releaseEx)
+                {
+                    _logger.Warning($"Error processing release: {releaseEx.Message}");
+                    continue; // Переходим к следующему релизу
                 }
             }
             

@@ -1,0 +1,71 @@
+# Альтернативный вариант с полной автоматизацией версий
+name: Deploy Releases (Auto Version)
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Semantic Version
+        id: get-version
+        shell: bash
+        run: |
+          # Получаем дату для мажорной.минорной версии
+          YEAR=$(date +%y)
+          MONTH=$(date +%-m)
+          
+          # Номер коммита как патч версия
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          
+          if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            VERSION="${YEAR}.${MONTH}.${COMMIT_COUNT}"
+          else
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            VERSION="${YEAR}.${MONTH}.${COMMIT_COUNT}-beta+${SHORT_SHA}"
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Generated semantic version: ${VERSION}"
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Update Project Version
+        shell: bash
+        run: |
+          # Динамически обновляем версию в проекте
+          sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.get-version.outputs.version }}<\/Version>/" LolManager.csproj
+
+      - name: Publish Application
+        run: dotnet publish LolManager.csproj -c Release -o publish -r win-x64 --self-contained true
+
+      - name: Create Stable Release
+        if: github.ref == 'refs/heads/master'
+        run: |
+          dotnet tool install -g vpk
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel stable
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Beta Release
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          dotnet tool install -g vpk
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel beta
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --prerelease --token ${{ secrets.GITHUB_TOKEN }}

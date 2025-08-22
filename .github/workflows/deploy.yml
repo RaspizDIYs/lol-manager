@@ -1,0 +1,206 @@
+name: Deploy Releases
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+  metadata: read
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Version and Validate
+        id: get-version
+        shell: bash
+        run: |
+          set -e  # Exit on any error
+          
+          # Валидируем что .csproj содержит версию
+          if ! grep -q '<Version>' LolManager.csproj; then
+            echo "❌ ERROR: No <Version> tag found in LolManager.csproj"
+            exit 1
+          fi
+          
+          CURRENT_VERSION=$(grep -oE '<Version>[^<]+' LolManager.csproj | sed 's/<Version>//')
+          echo "Current version in csproj: $CURRENT_VERSION"
+          
+          # Проверяем что версия валидна (формат X.Y.Z)
+          if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ ERROR: Invalid version format in csproj: $CURRENT_VERSION (expected: X.Y.Z)"
+            exit 1
+          fi
+          
+          if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            # Для master проверяем что версия изменилась
+            echo "Checking if version was updated for stable release..."
+            
+            # Получаем последний стабильный релиз с обработкой ошибок
+            echo "Fetching latest stable release from GitHub API..."
+            
+            API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
+              -H "Authorization: token ${{ secrets.PERSONAL_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases")
+            
+            HTTP_STATUS=$(echo "$API_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_STATUS:/d')
+            
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "❌ ERROR: GitHub API request failed with status $HTTP_STATUS"
+              echo "Response: $RESPONSE_BODY"
+              exit 1
+            fi
+            
+            # Проверяем что jq доступен
+            if ! command -v jq &> /dev/null; then
+              echo "❌ ERROR: jq is not installed"
+              exit 1
+            fi
+            
+            LAST_RELEASE=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
+            
+            if [ "$?" != "0" ]; then
+              echo "❌ ERROR: Failed to parse GitHub API response with jq"
+              exit 1
+            fi
+            
+            LAST_VERSION=${LAST_RELEASE#v}
+            echo "Last stable release version: $LAST_VERSION"
+            
+            if [ "$CURRENT_VERSION" == "$LAST_VERSION" ]; then
+              echo "❌ ERROR: Version in csproj ($CURRENT_VERSION) matches last release ($LAST_VERSION)"
+              echo "Please update version in LolManager.csproj before pushing to master"
+              exit 1
+            fi
+            
+            # Проверяем что новая версия больше предыдущей
+            if ! printf '%s\n%s\n' "$LAST_VERSION" "$CURRENT_VERSION" | sort -V -C; then
+              echo "❌ ERROR: New version ($CURRENT_VERSION) is not greater than last version ($LAST_VERSION)"
+              exit 1
+            fi
+            
+            echo "✅ Version check passed: $CURRENT_VERSION > $LAST_VERSION"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            
+          else
+            # Для develop добавляем только автоинкремент  
+            echo "Generating develop version with auto-increment..."
+            
+            DEVELOP_COMMIT_COUNT=$(git rev-list --count HEAD)
+            if [ "$?" != "0" ]; then
+              echo "❌ ERROR: Failed to get commit count"
+              exit 1
+            fi
+            
+            if ! [[ "$DEVELOP_COMMIT_COUNT" =~ ^[0-9]+$ ]]; then
+              echo "❌ ERROR: Invalid commit count: $DEVELOP_COMMIT_COUNT"
+              exit 1
+            fi
+            
+            VERSION="${CURRENT_VERSION}.${DEVELOP_COMMIT_COUNT}"
+            echo "Develop version with auto-increment: $VERSION"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Application
+        run: |
+          echo "Publishing .NET application..."
+          dotnet publish LolManager.csproj -c Release -o publish -r win-x64 --self-contained true
+          
+          if [ ! -d "publish" ]; then
+            echo "❌ ERROR: Publish directory not created"
+            exit 1
+          fi
+          
+          if [ ! -f "publish/LolManager.exe" ]; then
+            echo "❌ ERROR: LolManager.exe not found in publish directory"
+            exit 1
+          fi
+          
+          echo "✅ Application published successfully"
+
+      - name: Create Stable Release
+        if: github.ref == 'refs/heads/master'
+        run: |
+          echo "Creating stable release v${{ steps.get-version.outputs.version }}..."
+          
+          echo "Installing Velopack CLI..."
+          dotnet tool install -g vpk
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to install vpk tool"
+            exit 1
+          fi
+          
+          echo "Downloading existing releases..."
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.PERSONAL_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "⚠️  WARNING: Failed to download existing releases (this is OK for first release)"
+          fi
+          
+          echo "Packing application..."
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel stable
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to pack application"
+            exit 1
+          fi
+          
+          echo "Uploading release to GitHub..."
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --token ${{ secrets.PERSONAL_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to upload release to GitHub"
+            exit 1
+          fi
+          
+          echo "✅ Stable release created successfully"
+
+      - name: Create Beta Release
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          echo "Creating beta release v${{ steps.get-version.outputs.version }}..."
+          
+          echo "Installing Velopack CLI..."
+          dotnet tool install -g vpk
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to install vpk tool"
+            exit 1
+          fi
+          
+          echo "Downloading existing beta releases..."
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --channel beta --token ${{ secrets.PERSONAL_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "⚠️  WARNING: Failed to download existing beta releases (this is OK for first beta release)"
+          fi
+          
+          echo "Packing beta application..."
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel beta
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to pack beta application"
+            exit 1
+          fi
+          
+          echo "Uploading beta release to GitHub..."
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --prerelease --token ${{ secrets.PERSONAL_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to upload beta release to GitHub"
+            exit 1
+          fi
+          
+          echo "✅ Beta release created successfully"
