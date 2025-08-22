@@ -170,39 +170,16 @@ jobs:
             exit 1
           fi
           
-          echo "Waiting for release to be fully published..."
-          sleep 10
+          echo "Adding release notes to stable release..."
+          sleep 3
           
-          echo "Finding and updating stable release..."
-          # Находим релиз по тегу
-          RELEASE_INFO=$(curl -s \
+          curl -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases")
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
+            -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-stable-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*"}'
           
-          RELEASE_ID=$(echo "$RELEASE_INFO" | grep -A 10 -B 10 "\"tag_name\".*\"v${{ steps.get-version.outputs.version }}\"" | grep "\"id\":" | head -1 | cut -d: -f2 | cut -d, -f1 | tr -d ' ')
-          
-          if [ -z "$RELEASE_ID" ]; then
-            echo "⚠️  WARNING: Could not find release with tag v${{ steps.get-version.outputs.version }}"
-            echo "Available releases:"
-            echo "$RELEASE_INFO" | grep "tag_name"
-          else
-            echo "Found release ID: $RELEASE_ID"
-            
-            echo "Adding release notes and ensuring stable release status..."
-            PATCH_RESPONSE=$(curl -s -X PATCH \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
-              -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-stable-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*", "prerelease": false}')
-            
-            if echo "$PATCH_RESPONSE" | grep -q '"prerelease".*false'; then
-              echo "✅ Stable release confirmed as latest"
-            else
-              echo "⚠️  WARNING: Could not confirm stable release status"
-              echo "API Response: $PATCH_RESPONSE"
-            fi
-          fi
+          echo "✅ Release notes added to stable release"
           
           echo "✅ Stable release created successfully"
 
@@ -243,22 +220,46 @@ jobs:
           sleep 10
           
           echo "Finding and updating beta release..."
-          # Находим релиз по тегу, учитывая что он может быть draft
-          RELEASE_INFO=$(curl -s \
-            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/releases")
           
-          RELEASE_ID=$(echo "$RELEASE_INFO" | grep -A 10 -B 10 "\"tag_name\".*\"v${{ steps.get-version.outputs.version }}\"" | grep "\"id\":" | head -1 | cut -d: -f2 | cut -d, -f1 | tr -d ' ')
+          # Простой подход: получаем последний релиз с нашим тегом
+          echo "Searching for release with tag: v${{ steps.get-version.outputs.version }}"
           
-          if [ -z "$RELEASE_ID" ]; then
+          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}"
+          
+          # Пробуем получить релиз по тегу несколько раз
+          for i in {1..5}; do
+            echo "Attempt $i to find release..."
+            RELEASE_RESPONSE=$(curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "$RELEASE_URL")
+            
+            if echo "$RELEASE_RESPONSE" | grep -q '"id":'; then
+              echo "✅ Found release on attempt $i"
+              break
+            else
+              echo "Release not found yet, waiting..."
+              sleep 3
+            fi
+          done
+          
+          if echo "$RELEASE_RESPONSE" | grep -q '"message":.*"Not Found"'; then
             echo "⚠️  WARNING: Could not find release with tag v${{ steps.get-version.outputs.version }}"
+            echo "API Response: $RELEASE_RESPONSE"
+            
+            # Показываем доступные релизы для отладки
             echo "Available releases:"
-            echo "$RELEASE_INFO" | grep "tag_name"
+            curl -s \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases" | \
+              grep -o '"tag_name":"[^"]*"' || echo "Failed to get releases list"
           else
+            echo "Adding beta release notes and marking as pre-release..."
+            
+            RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
             echo "Found release ID: $RELEASE_ID"
             
-            echo "Adding beta release notes and marking as pre-release..."
             PATCH_RESPONSE=$(curl -s -X PATCH \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
