@@ -52,6 +52,19 @@ public class RiotClientService : IRiotClientService
         var swAll = Stopwatch.StartNew();
         _logger.LoginFlow("LoginAsync start", "UIA flow in Riot Client");
 
+        // 0) Сначала выйти из текущего аккаунта League
+        _logger.LoginFlow("Logging out before login", "Ensuring clean state");
+        try 
+        { 
+            await LogoutAsync(); 
+            _logger.LoginFlow("Logout completed", "Ready for new login");
+            await Task.Delay(1000); // Пауза для обработки выхода
+        } 
+        catch (Exception ex) 
+        { 
+            _logger.Warning($"Logout during login failed, continuing: {ex.Message}"); 
+        }
+
         // 1) Убедиться, что RC запущен
         var sw = Stopwatch.StartNew();
         try

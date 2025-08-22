@@ -47,24 +47,24 @@
                        LineHeight="20"/>
         </ScrollViewer>
         
-        <!-- Кнопки -->
+        <!-- Кнопки (порядок поменян: Да слева, Нет справа) -->
         <StackPanel Grid.Row="2" 
                     Orientation="Horizontal" 
                     HorizontalAlignment="Right">
-            <ui:Button x:Name="OkButton" 
-                      Content="OK" 
-                      Appearance="Primary"
-                      Width="80"
-                      Height="32"
-                      Margin="0,0,8,0"
-                      Click="OkButton_Click"/>
             <ui:Button x:Name="CancelButton" 
                       Content="Отмена" 
                       Appearance="Secondary"
                       Width="80"
                       Height="32"
+                      Margin="0,0,8,0"
                       Visibility="Collapsed"
                       Click="CancelButton_Click"/>
+            <ui:Button x:Name="OkButton" 
+                      Content="OK" 
+                      Appearance="Primary"
+                      Width="80"
+                      Height="32"
+                      Click="OkButton_Click"/>
         </StackPanel>
     </Grid>
 </ui:FluentWindow>

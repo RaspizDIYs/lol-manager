@@ -11,16 +11,18 @@ public partial class MessageWindow : FluentWindow
         Information,
         Warning,
         Error,
-        Success
+        Success,
+        Question
     }
     
     public enum MessageButtons
     {
         Ok,
-        OkCancel
+        OkCancel,
+        YesNo
     }
     
-    public new bool? DialogResult { get; private set; }
+    // Удаляем кастомный DialogResult - используем встроенный WPF
     
     public MessageWindow()
     {
@@ -69,6 +71,9 @@ public partial class MessageWindow : FluentWindow
             case MessageType.Success:
                 window.MessageIcon.Symbol = Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle24;
                 break;
+            case MessageType.Question:
+                window.MessageIcon.Symbol = Wpf.Ui.Controls.SymbolRegular.QuestionCircle24;
+                break;
         }
         
         // Настройка кнопок
@@ -76,9 +81,17 @@ public partial class MessageWindow : FluentWindow
         {
             case MessageButtons.Ok:
                 window.CancelButton.Visibility = Visibility.Collapsed;
+                window.OkButton.Content = "OK";
                 break;
             case MessageButtons.OkCancel:
                 window.CancelButton.Visibility = Visibility.Visible;
+                window.OkButton.Content = "OK";
+                window.CancelButton.Content = "Отмена";
+                break;
+            case MessageButtons.YesNo:
+                window.CancelButton.Visibility = Visibility.Visible;
+                window.OkButton.Content = "Да";
+                window.CancelButton.Content = "Нет";
                 break;
         }
         
@@ -88,13 +101,13 @@ public partial class MessageWindow : FluentWindow
     
     private void OkButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = true;
+        this.DialogResult = true;
         Close();
     }
     
     private void CancelButton_Click(object sender, RoutedEventArgs e)
     {
-        DialogResult = false;
+        this.DialogResult = false;
         Close();
     }
 }

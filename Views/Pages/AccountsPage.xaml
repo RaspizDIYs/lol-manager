@@ -20,27 +20,74 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        
+        <Style x:Key="ExportSelectionStyle" TargetType="StackPanel">
+            <Setter Property="Visibility" Value="Collapsed"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsExportSelectionMode}" Value="True">
+                    <Setter Property="Visibility" Value="Visible"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="NormalModeStyle" TargetType="StackPanel">
+            <Setter Property="Visibility" Value="Visible"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsExportSelectionMode}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
     
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Top toolbar -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Top" Margin="8" Style="{StaticResource FadeOnVisibleStack}">
+        <!-- Top toolbar - Normal Mode -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Top" Margin="8" Style="{StaticResource NormalModeStyle}">
             <ui:Button Appearance="Primary" Content="Добавить аккаунт" Command="{Binding OpenAddAccountCommand}" />
             <ui:Button Appearance="Secondary" Content="Редактировать" Margin="6,0,0,0" Command="{Binding EditSelectedCommand}" />
             <ui:Button Appearance="Danger" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
             <ui:Button Appearance="Info" Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
             <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
+        </StackPanel>
 
+        <!-- Export/Import Controls - Normal Mode -->
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,0,8,8" Style="{StaticResource NormalModeStyle}">
+            <ui:Button Content="Экспорт" Command="{Binding ExportAccountsCommand}" Appearance="Secondary" Margin="0,0,6,0"/>
+            <ui:Button Content="Импорт" Command="{Binding ImportAccountsCommand}" Appearance="Secondary"/>
+        </StackPanel>
 
+        <!-- Export Selection Controls -->
+        <StackPanel Grid.Row="0" Grid.RowSpan="2" Margin="8" Style="{StaticResource ExportSelectionStyle}">
+            <ui:Card Padding="16" Margin="0,0,0,8">
+                <StackPanel>
+                    <TextBlock Text="Выберите аккаунты для экспорта" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,12"/>
+                    
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                        <ui:Button Content="Выбрать все" Command="{Binding SelectAllAccountsCommand}" Appearance="Secondary" Margin="0,0,8,0"/>
+                        <ui:Button Content="Снять выбор" Command="{Binding DeselectAllAccountsCommand}" Appearance="Secondary" Margin="0,0,8,0"/>
+                        <ui:Button Content="{Binding ExportButtonText}" Command="{Binding ExportAccountsCommand}" Appearance="Primary"/>
+                    </StackPanel>
+                    
+                    <TextBlock Margin="0,0,0,8">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="Выбрано: {0} из {1} аккаунтов">
+                                <Binding Path="Accounts" Converter="{StaticResource SelectedAccountsCountConverter}"/>
+                                <Binding Path="Accounts.Count"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </StackPanel>
+            </ui:Card>
         </StackPanel>
 
         <!-- DataGrid -->
-        <ui:Card Grid.Row="1" Margin="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <ui:Card Grid.Row="2" Margin="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <ui:DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
                           AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" VerticalAlignment="Stretch"
                           GridLinesVisibility="None" HeadersVisibility="Column"
@@ -49,12 +96,30 @@
                           RowHeaderWidth="0">
 
                 <ui:DataGrid.Columns>
+                    <!-- Selection Checkbox Column -->
+                    <DataGridTemplateColumn Header="Выбор" Width="60" MinWidth="60">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" 
+                                         HorizontalAlignment="Center" 
+                                         VerticalAlignment="Center"
+                                         Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                        <DataGridTemplateColumn.HeaderTemplate>
+                            <DataTemplate>
+                                <CheckBox Content="Выбор" 
+                                         Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"
+                                         Command="{Binding DataContext.SelectAllAccountsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.HeaderTemplate>
+                    </DataGridTemplateColumn>
+                    
                     <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="200" MinWidth="150"/>
                     <DataGridTextColumn Header="Заметка" Binding="{Binding Note}" Width="*" MinWidth="100"/>
-                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt}" Width="200" MinWidth="150"/>
+                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" Width="200" MinWidth="150"/>
                 </ui:DataGrid.Columns>
             </ui:DataGrid>
         </ui:Card>
     </Grid>
 </UserControl>
-

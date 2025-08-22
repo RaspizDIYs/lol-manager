@@ -12,7 +12,7 @@ public interface IAccountsStorage
     string Protect(string plain);
     string Unprotect(string encrypted);
     
-    void ExportAccounts(string filePath);
+    void ExportAccounts(string filePath, IEnumerable<AccountRecord>? selectedAccounts = null);
     void ImportAccounts(string filePath);
 }
 

@@ -13,6 +13,7 @@ using LolManager.Services;
 using LolManager.Views;
 using System.Collections.Generic;
 using System.Collections;
+using System.ComponentModel;
 
 namespace LolManager.ViewModels;
 
@@ -102,8 +103,19 @@ public partial class MainViewModel : ObservableObject
 	[ObservableProperty]
 	private string changelogText = string.Empty;
 
+	[ObservableProperty]
+	private bool isExportSelectionMode = false;
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(ExportButtonText))]
+	private bool hasSelectedAccounts = false;
+
+	public string ExportButtonText => IsExportSelectionMode 
+		? (HasSelectedAccounts ? "Далее" : "Пропустить")
+		: "Экспорт";
+
 	public MainViewModel()
-		: this(new AccountsStorage(), new RiotClientService(), new FileLogger(), new SettingsService())
+		: this(new AccountsStorage(new FileLogger()), new RiotClientService(), new FileLogger(), new SettingsService())
     {
     }
 
@@ -115,8 +127,14 @@ public partial class MainViewModel : ObservableObject
 		_settingsService = settingsService;
 		_updateService = new Lazy<UpdateService>(() => new UpdateService(_logger, _settingsService));
 
+		_logger.Info("MainViewModel initialized");
+
 		foreach (var acc in _accountsStorage.LoadAll())
+		{
+			// Подписываемся на изменения IsSelected для каждого аккаунта
+			acc.PropertyChanged += OnAccountSelectionChanged;
 			Accounts.Add(acc);
+		}
 
 		SelectedTabIndex = 0;
 		
@@ -368,6 +386,7 @@ public partial class MainViewModel : ObservableObject
             CreatedAt = DateTime.Now
         };
         _accountsStorage.Save(created);
+        created.PropertyChanged += OnAccountSelectionChanged;
         Accounts.Add(created);
         ClearForm();
         SelectedTabIndex = 0;
@@ -397,6 +416,7 @@ public partial class MainViewModel : ObservableObject
 		};
 		
 		_accountsStorage.Save(updated);
+		updated.PropertyChanged += OnAccountSelectionChanged;
 		Accounts.Add(updated);
 		ClearForm();
 		SelectedTabIndex = 0;
@@ -754,27 +774,121 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ExportAccounts()
     {
+        if (IsExportSelectionMode)
+        {
+            if (HasSelectedAccounts)
+            {
+                // Экспорт выбранных аккаунтов
+                PerformExport();
+            }
+            else
+            {
+                // Пропустить - отмена режима выбора
+                CancelExportSelection();
+            }
+        }
+        else
+        {
+            // Входим в режим выбора аккаунтов
+            EnterExportSelectionMode();
+        }
+    }
+
+    private void EnterExportSelectionMode()
+    {
+        IsExportSelectionMode = true;
+        
+        // Очищаем предыдущие выборы
+        foreach (var account in Accounts)
+        {
+            account.IsSelected = false;
+        }
+        
+        UpdateSelectedAccountsCount();
+    }
+
+    private void CancelExportSelection()
+    {
+        IsExportSelectionMode = false;
+        
+        // Очищаем выборы
+        foreach (var account in Accounts)
+        {
+            account.IsSelected = false;
+        }
+        
+        UpdateSelectedAccountsCount();
+    }
+
+    private void PerformExport()
+    {
         try
         {
+            var selectedAccounts = Accounts.Where(a => a.IsSelected).ToList();
+            if (!selectedAccounts.Any())
+            {
+                MessageWindow.Show("Выберите хотя бы один аккаунт для экспорта.", "Экспорт", MessageWindow.MessageType.Warning);
+                return;
+            }
+
             var saveFileDialog = new Microsoft.Win32.SaveFileDialog
             {
-                Filter = "JSON файлы (*.json)|*.json",
-                DefaultExt = ".json",
-                FileName = $"accounts_export_{DateTime.Now:yyyy-MM-dd}"
+                Filter = "Зашифрованный файл LolManager (*.lolm)|*.lolm",
+                DefaultExt = ".lolm",
+                FileName = $"accounts_export_{DateTime.Now:yyyy-MM-dd}_{selectedAccounts.Count}_accounts"
             };
 
             if (saveFileDialog.ShowDialog() == true)
             {
-                _accountsStorage.ExportAccounts(saveFileDialog.FileName);
-                MessageWindow.Show("Аккаунты успешно экспортированы!", "Экспорт", MessageWindow.MessageType.Information);
-                _logger.Info($"Accounts exported to: {saveFileDialog.FileName}");
+                _logger.Info($"Начат экспорт {selectedAccounts.Count} аккаунтов в файл: {Path.GetFileName(saveFileDialog.FileName)}");
+                _accountsStorage.ExportAccounts(saveFileDialog.FileName, selectedAccounts);
+                
+                var message = $"Успешно экспортировано {selectedAccounts.Count} аккаунт(ов)!\n\nФайл: {Path.GetFileName(saveFileDialog.FileName)}";
+                MessageWindow.Show(message, "Экспорт завершен", MessageWindow.MessageType.Information);
+                _logger.Info($"Экспорт завершен успешно: {selectedAccounts.Count} аккаунтов");
+                
+                // Выходим из режима выбора
+                CancelExportSelection();
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Export error: {ex.Message}");
+            _logger.Error($"Ошибка экспорта: {ex.Message}");
             MessageWindow.Show($"Ошибка экспорта: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
         }
+    }
+
+    [RelayCommand]
+    private void SelectAllAccounts()
+    {
+        foreach (var account in Accounts)
+        {
+            account.IsSelected = true;
+        }
+        UpdateSelectedAccountsCount();
+    }
+
+    [RelayCommand]
+    private void DeselectAllAccounts()
+    {
+        foreach (var account in Accounts)
+        {
+            account.IsSelected = false;
+        }
+        UpdateSelectedAccountsCount();
+    }
+
+    private void OnAccountSelectionChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AccountRecord.IsSelected))
+        {
+            UpdateSelectedAccountsCount();
+        }
+    }
+
+    private void UpdateSelectedAccountsCount()
+    {
+        HasSelectedAccounts = Accounts.Any(a => a.IsSelected);
     }
 
     [RelayCommand]
@@ -784,32 +898,56 @@ public partial class MainViewModel : ObservableObject
         {
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
-                Filter = "JSON файлы (*.json)|*.json",
-                DefaultExt = ".json"
+                Filter = "Все поддерживаемые файлы (*.lolm;*.json)|*.lolm;*.json|Зашифрованные файлы LolManager (*.lolm)|*.lolm|JSON файлы (*.json)|*.json",
+                DefaultExt = ".lolm"
             };
 
             if (openFileDialog.ShowDialog() == true)
             {
-                var result = MessageWindow.Show("Импорт заменит существующие аккаунты с одинаковыми именами. Продолжить?", 
-                    "Подтверждение импорта", MessageWindow.MessageType.Warning, MessageWindow.MessageButtons.OkCancel);
+                var selectedFile = openFileDialog.FileName;
+                _logger.Info($"Начат импорт из файла: {Path.GetFileName(selectedFile)}");
+                
+                var result = MessageWindow.Show(
+                    "Импорт добавит новые аккаунты и обновит существующие с теми же именами.\n\nПродолжить импорт?", 
+                    "Подтверждение импорта", 
+                    MessageWindow.MessageType.Question, 
+                    MessageWindow.MessageButtons.YesNo);
                 
                 if (result == true)
                 {
-                    _accountsStorage.ImportAccounts(openFileDialog.FileName);
+                    var accountsCountBefore = Accounts.Count;
+                    _accountsStorage.ImportAccounts(selectedFile);
                     
+                    // Перезагружаем список аккаунтов
                     Accounts.Clear();
                     foreach (var acc in _accountsStorage.LoadAll())
+                    {
+                        acc.PropertyChanged += OnAccountSelectionChanged;
                         Accounts.Add(acc);
+                    }
                     
-                    MessageWindow.Show("Аккаунты успешно импортированы!", "Импорт", MessageWindow.MessageType.Information);
-                    _logger.Info($"Accounts imported from: {openFileDialog.FileName}");
+                    var fileExt = Path.GetExtension(selectedFile).ToLower();
+                    var formatInfo = fileExt switch
+                    {
+                        ".lolm" => "зашифрованного файла",
+                        ".json" => "JSON файла",
+                        _ => "файла"
+                    };
+                    
+                    _logger.Info($"Импорт завершен успешно. Аккаунтов было: {accountsCountBefore}, стало: {Accounts.Count}");
+                    MessageWindow.Show($"Аккаунты успешно импортированы из {formatInfo}!", "Импорт завершен", MessageWindow.MessageType.Information);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Import error: {ex.Message}");
-            MessageWindow.Show($"Ошибка импорта: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+            _logger.Error($"Ошибка импорта: {ex.Message}");
+            
+            var errorMsg = ex.Message.Contains("расшифровать") 
+                ? "Не удалось расшифровать файл. Убедитесь, что файл не поврежден и был создан на этом компьютере."
+                : $"Ошибка импорта: {ex.Message}";
+            
+            MessageWindow.Show(errorMsg, "Ошибка импорта", MessageWindow.MessageType.Error);
         }
     }
 

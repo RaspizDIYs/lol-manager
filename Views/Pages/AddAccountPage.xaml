@@ -44,10 +44,7 @@
                 </StackPanel>
             </StackPanel>
         
-        <StackPanel Orientation="Vertical" Grid.Row="0" Grid.Column="1" VerticalAlignment="Top" Margin="0,95,0,0">
-            <ui:Button Content="Экспорт" Appearance="Secondary" Width="140" Height="40" Command="{Binding ExportAccountsCommand}" Margin="0,0,10,10"/>
-            <ui:Button Content="Импорт" Appearance="Secondary" Width="140" Height="40" Command="{Binding ImportAccountsCommand}"/>
-        </StackPanel>
+        <!-- Removed export/import buttons - moved to AccountsPage -->
 
     </Grid>
 </UserControl>
