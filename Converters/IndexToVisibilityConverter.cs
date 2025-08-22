@@ -5,6 +5,7 @@ using System.Windows.Data;
 
 namespace LolManager.Converters
 {
+	//пасхалко
 	public sealed class IndexToVisibilityConverter : IValueConverter
 	{
 		public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
