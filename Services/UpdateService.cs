@@ -2,6 +2,7 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using Velopack;
 using Velopack.Sources;
 using LolManager.Models;
@@ -67,22 +68,21 @@ public class UpdateService : IUpdateService
         var repoUrl = $"https://github.com/{repoOwner}/{repoName}";
         
         _logger.Info($"Creating GithubSource for {repoUrl} (channel: {channel})");
+        _logger.Info($"Repository owner: {repoOwner}, name: {repoName}");
         
         try
         {
-            var source = channel switch
-            {
-                "beta" => new GithubSource(repoUrl, null, true), // включает pre-releases
-                "stable" => new GithubSource(repoUrl, null, false), // только stable releases
-                _ => new GithubSource(repoUrl, null, false)
-            };
+            var includePrerelease = channel == "beta";
+            _logger.Info($"Include prerelease: {includePrerelease}");
             
-            _logger.Info($"GithubSource created successfully");
+            var source = new GithubSource(repoUrl, null, includePrerelease);
+            _logger.Info($"GithubSource created successfully for channel '{channel}'");
+            
             return source;
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to create GithubSource: {ex.Message}");
+            _logger.Error($"Failed to create GithubSource: {ex.GetType().Name} - {ex.Message}");
             _logger.Debug($"GithubSource exception: {ex}");
             throw;
         }
@@ -148,12 +148,43 @@ public class UpdateService : IUpdateService
             // Сначала проверим GitHub релизы напрямую
             await CheckGitHubReleasesDirectlyAsync(settings.UpdateChannel);
             
-            var updateInfo = await updateManager.CheckForUpdatesAsync();
-            if (updateInfo != null)
+            try
             {
-                _logger.Info($"Update available: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
-                _logger.Info($"Target package: {updateInfo.TargetFullRelease.PackageId}");
-                return true;
+                _logger.Info("Calling Velopack CheckForUpdatesAsync...");
+                
+                var updateInfo = await updateManager.CheckForUpdatesAsync();
+                
+                if (updateInfo != null)
+                {
+                    _logger.Info($"Velopack found update: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
+                    _logger.Info($"Target package: {updateInfo.TargetFullRelease.PackageId}");
+                    return true;
+                }
+                else
+                {
+                    _logger.Warning("Velopack CheckForUpdatesAsync returned null - no updates found or error accessing RELEASES file");
+                    _logger.Warning("This usually means RELEASES file is missing, corrupted, or doesn't contain newer version info");
+                }
+            }
+            catch (Exception veloEx)
+            {
+                _logger.Error($"Velopack CheckForUpdatesAsync failed: {veloEx.GetType().Name} - {veloEx.Message}");
+                
+                // Проверяем специфичные типы ошибок Velopack
+                if (veloEx.Message.Contains("404") || veloEx.Message.Contains("Not Found"))
+                {
+                    _logger.Error("HTTP 404 - RELEASES file not found in GitHub release assets");
+                }
+                else if (veloEx.Message.Contains("403") || veloEx.Message.Contains("Forbidden"))
+                {
+                    _logger.Error("HTTP 403 - Access denied to GitHub repository or rate limited");
+                }
+                else if (veloEx.Message.Contains("ssl") || veloEx.Message.Contains("certificate"))
+                {
+                    _logger.Error("SSL/Certificate error accessing GitHub");
+                }
+                
+                _logger.Debug($"Velopack exception stack trace: {veloEx.StackTrace}");
             }
             
             _logger.Info("No updates available via Velopack, trying direct GitHub check...");
@@ -190,10 +221,12 @@ public class UpdateService : IUpdateService
                 return false;
             }
 
+            _logger.Info("Calling Velopack CheckForUpdatesAsync for update process...");
+            
             var updateInfo = await updateManager.CheckForUpdatesAsync();
             if (updateInfo == null)
             {
-                _logger.Info("No updates available via Velopack");
+                _logger.Info("Velopack CheckForUpdatesAsync returned null in UpdateAsync - no updates available");
                 
                 // Если Velopack не нашел обновления, но мы знаем что они есть через GitHub API
                 var settings = _settingsService.LoadUpdateSettings();
@@ -221,6 +254,8 @@ public class UpdateService : IUpdateService
                 return false;
             }
 
+            _logger.Info($"Velopack found update in UpdateAsync: {updateInfo.TargetFullRelease.Version}");
+            _logger.Info($"Update package info - ID: {updateInfo.TargetFullRelease.PackageId}");
             _logger.Info($"Downloading update: {updateInfo.TargetFullRelease.Version}");
             await updateManager.DownloadUpdatesAsync(updateInfo);
             
@@ -342,6 +377,9 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Found {releases.RootElement.GetArrayLength()} releases in GitHub");
             
+            // Проверяем содержимое releases.win.json файла из latest release
+            await CheckReleasesWinJsonContent(httpClient, repoOwner, repoName, releases);
+            
             int count = 0;
             foreach (var release in releases.RootElement.EnumerateArray().Take(5))
             {
@@ -401,6 +439,84 @@ public class UpdateService : IUpdateService
         catch (Exception ex)
         {
             _logger.Error($"Failed to check GitHub releases directly: {ex.Message}");
+        }
+    }
+
+    private async Task CheckReleasesWinJsonContent(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases)
+    {
+        try
+        {
+            var latestRelease = releases.RootElement.EnumerateArray().FirstOrDefault();
+            if (latestRelease.ValueKind == JsonValueKind.Undefined)
+            {
+                _logger.Warning("No releases found to check releases.win.json");
+                return;
+            }
+
+            var tagName = latestRelease.GetProperty("tag_name").GetString() ?? "Unknown";
+            var assets = latestRelease.GetProperty("assets");
+            
+            string? releasesJsonUrl = null;
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.Equals("releases.win.json", StringComparison.OrdinalIgnoreCase))
+                {
+                    releasesJsonUrl = asset.GetProperty("browser_download_url").GetString();
+                    break;
+                }
+            }
+
+            if (releasesJsonUrl != null)
+            {
+                _logger.Info($"Found releases.win.json in {tagName}: {releasesJsonUrl}");
+                
+                try
+                {
+                    var jsonContent = await httpClient.GetStringAsync(releasesJsonUrl);
+                    _logger.Info($"releases.win.json content length: {jsonContent.Length} chars");
+                    
+                    // Парсим и анализируем содержимое
+                    var releasesDoc = JsonDocument.Parse(jsonContent);
+                    if (releasesDoc.RootElement.TryGetProperty("releases", out var releasesArray))
+                    {
+                        var releasesCount = releasesArray.GetArrayLength();
+                        _logger.Info($"releases.win.json contains {releasesCount} release entries");
+                        
+                        var currentVersion = Version.Parse(CurrentVersion);
+                        foreach (var releaseEntry in releasesArray.EnumerateArray())
+                        {
+                            if (releaseEntry.TryGetProperty("version", out var versionProp))
+                            {
+                                var versionString = versionProp.GetString() ?? "";
+                                if (Version.TryParse(versionString, out var releaseVersion))
+                                {
+                                    var isNewer = releaseVersion > currentVersion;
+                                    _logger.Info($"  Release entry: v{versionString} (newer: {isNewer})");
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _logger.Warning("releases.win.json does not contain 'releases' array property");
+                        _logger.Debug($"releases.win.json root properties: {string.Join(", ", releasesDoc.RootElement.EnumerateObject().Select(p => p.Name))}");
+                    }
+                }
+                catch (Exception jsonEx)
+                {
+                    _logger.Error($"Failed to read/parse releases.win.json: {jsonEx.Message}");
+                }
+            }
+            else
+            {
+                _logger.Warning($"releases.win.json NOT FOUND in {tagName} - this is why Velopack fails!");
+                _logger.Warning("Velopack requires releases.win.json file, not just RELEASES");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error checking releases.win.json content: {ex.Message}");
         }
     }
 
