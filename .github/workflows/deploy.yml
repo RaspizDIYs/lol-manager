@@ -109,12 +109,8 @@ jobs:
               exit 1
             fi
             
-            # Для beta всегда поднимаем patch, чтобы бета > стабильной
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
-            NEW_PATCH=$((PATCH + 1))
-            BASE_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-            VERSION="${BASE_VERSION}-beta.${DEVELOP_COMMIT_COUNT}"
-            echo "Develop version with prerelease suffix: $VERSION (base: $BASE_VERSION)"
+            VERSION="${CURRENT_VERSION}-beta.${DEVELOP_COMMIT_COUNT}"
+            echo "Develop version with prerelease suffix: $VERSION"
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
 
