@@ -261,6 +261,7 @@ public class UpdateService : IUpdateService
             await updateManager.DownloadUpdatesAsync(updateInfo);
             
             _logger.Info("Update downloaded, applying and restarting...");
+            // Применяем обновление. При необходимости даунгрейда (когда версия ниже) Velopack применит полный пакет.
             updateManager.ApplyUpdatesAndRestart(updateInfo);
             
             return true;
@@ -270,6 +271,133 @@ public class UpdateService : IUpdateService
             _logger.Error($"Failed to update: {ex.Message}");
             return false;
         }
+    }
+
+    public async Task<Version?> GetLatestStableVersionAsync()
+    {
+        try
+        {
+            const string repoOwner = "RaspizDIYs";
+            const string repoName = "lol-manager";
+            using var httpClient = new HttpClient();
+            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
+            var response = await httpClient.GetStringAsync(url);
+            var releases = JsonDocument.Parse(response);
+            foreach (var release in releases.RootElement.EnumerateArray())
+            {
+                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
+                var isDraft = release.GetProperty("draft").GetBoolean();
+                if (isDraft || isPrerelease) continue;
+                var tag = release.GetProperty("tag_name").GetString() ?? string.Empty;
+                if (string.IsNullOrEmpty(tag)) continue;
+                var versionStr = tag.StartsWith("v") ? tag.Substring(1) : tag;
+                if (Version.TryParse(versionStr, out var v))
+                    return v;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to get latest stable version: {ex.Message}");
+        }
+        return null;
+    }
+
+    public async Task<bool> ForceDowngradeToStableAsync()
+    {
+        try
+        {
+            var latestStable = await GetLatestStableVersionAsync();
+            if (latestStable == null)
+            {
+                _logger.Error("Cannot find latest stable version for downgrade");
+                return false;
+            }
+
+            var settings = _settingsService.LoadUpdateSettings();
+            settings.UpdateChannel = "stable";
+            _settingsService.SaveUpdateSettings(settings);
+            _updateManager = null; // перезагрузим источник на stable
+
+            var updateManager = GetUpdateManager();
+            if (updateManager == null)
+            {
+                _logger.Error("UpdateManager not available for downgrade");
+                return false;
+            }
+
+            _logger.Info($"Attempting force downgrade to stable {latestStable}");
+
+            var updateInfo = await updateManager.CheckForUpdatesAsync();
+            if (updateInfo == null)
+            {
+                _logger.Warning("No updateInfo for downgrade. Opening stable installer as fallback.");
+                return await DownloadAndRunStableInstallerAsync();
+            }
+
+            // Если Velopack не предлагает даунгрейд автоматически, fallback на инсталлятор
+            try
+            {
+                await updateManager.DownloadUpdatesAsync(updateInfo);
+                updateManager.ApplyUpdatesAndRestart(updateInfo);
+                return true;
+            }
+            catch (Exception)
+            {
+                _logger.Warning("Velopack apply failed during downgrade, using installer fallback");
+                return await DownloadAndRunStableInstallerAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Force downgrade failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> DownloadAndRunStableInstallerAsync()
+    {
+        try
+        {
+            const string repoOwner = "RaspizDIYs";
+            const string repoName = "lol-manager";
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "LolManager-Installer");
+            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
+            var response = await http.GetStringAsync(url);
+            var releases = JsonDocument.Parse(response);
+            foreach (var release in releases.RootElement.EnumerateArray())
+            {
+                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
+                var isDraft = release.GetProperty("draft").GetBoolean();
+                if (isDraft || isPrerelease) continue;
+                foreach (var asset in release.GetProperty("assets").EnumerateArray())
+                {
+                    var name = asset.GetProperty("name").GetString() ?? "";
+                    if (!name.EndsWith("-Setup.exe", StringComparison.OrdinalIgnoreCase)) continue;
+                    var downloadUrl = asset.GetProperty("browser_download_url").GetString();
+                    if (string.IsNullOrEmpty(downloadUrl)) continue;
+
+                    var tempPath = Path.Combine(Path.GetTempPath(), name);
+                    _logger.Info($"Downloading stable installer: {name}");
+                    var data = await http.GetByteArrayAsync(downloadUrl);
+                    await File.WriteAllBytesAsync(tempPath, data);
+                    _logger.Info($"Installer saved: {tempPath}");
+
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = tempPath,
+                        UseShellExecute = true
+                    });
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to download/run stable installer: {ex.Message}");
+        }
+        return false;
     }
 
 

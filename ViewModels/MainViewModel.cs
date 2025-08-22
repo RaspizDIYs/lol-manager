@@ -171,6 +171,34 @@ public partial class MainViewModel : ObservableObject
 					_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
 					_settingsService.SaveUpdateSettings(UpdateSettings);
 					_logger.Info("Update channel saved to update-settings.json");
+
+					// Предупреждение при переключении с beta на stable
+					if (UpdateSettings.UpdateChannel == "stable")
+					{
+						try
+						{
+							var res = System.Windows.MessageBox.Show(
+								"Вы переключились на стабильный канал. Установить последнюю стабильную версию сейчас? (иначе дождитесь следующего стабильного обновления)",
+								"Канал обновлений",
+								System.Windows.MessageBoxButton.YesNo,
+								System.Windows.MessageBoxImage.Question);
+							if (res == System.Windows.MessageBoxResult.Yes)
+							{
+								_ = Task.Run(async () =>
+								{
+									try
+									{
+										await _updateService.Value.ForceDowngradeToStableAsync();
+									}
+									catch (Exception exDowngrade)
+									{
+										_logger.Error($"Force downgrade failed: {exDowngrade.Message}");
+									}
+								});
+							}
+						}
+						catch { }
+					}
 				}
 					catch (Exception ex)
 					{
