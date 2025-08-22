@@ -120,6 +120,7 @@ jobs:
           dotnet-version: 8.0.x
 
       - name: Publish Application
+        shell: bash
         run: |
           echo "Publishing .NET application..."
           dotnet publish LolManager.csproj -c Release -o publish -r win-x64 --self-contained true
@@ -138,6 +139,7 @@ jobs:
 
       - name: Create Stable Release
         if: github.ref == 'refs/heads/master'
+        shell: bash
         run: |
           echo "Creating stable release v${{ steps.get-version.outputs.version }}..."
           
@@ -172,6 +174,7 @@ jobs:
 
       - name: Create Beta Release
         if: github.ref == 'refs/heads/develop'
+        shell: bash
         run: |
           echo "Creating beta release v${{ steps.get-version.outputs.version }}..."
           
