@@ -75,7 +75,7 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Channel: {channelName}, Include prerelease: {includePrerelease}");
             
-            // Источник GitHub; канал учитывается на стороне публикуемых файлов (releases.<channel>.json)
+            // Используем стандартный GithubSource - файлы releases.{channel}.json будут проверяться отдельно
             var source = new GithubSource(repoUrl, null, includePrerelease);
             _logger.Info($"GithubSource created successfully for channel '{channelName}'");
             
@@ -525,8 +525,8 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Found {releases.RootElement.GetArrayLength()} releases in GitHub");
             
-            // Проверяем содержимое releases.win.json файла из latest release
-            await CheckReleasesWinJsonContent(httpClient, repoOwner, repoName, releases);
+            // Проверяем содержимое releases.{channel}.json файла из latest release
+            await CheckReleasesChannelJsonContent(httpClient, repoOwner, repoName, releases, channel);
             
             int count = 0;
             foreach (var release in releases.RootElement.EnumerateArray().Take(5))
@@ -590,25 +590,27 @@ public class UpdateService : IUpdateService
         }
     }
 
-    private async Task CheckReleasesWinJsonContent(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases)
+    private async Task CheckReleasesChannelJsonContent(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases, string channel)
     {
         try
         {
             var latestRelease = releases.RootElement.EnumerateArray().FirstOrDefault();
             if (latestRelease.ValueKind == JsonValueKind.Undefined)
             {
-                _logger.Warning("No releases found to check releases.win.json");
+                _logger.Warning($"No releases found to check releases.{channel}.json");
                 return;
             }
 
             var tagName = latestRelease.GetProperty("tag_name").GetString() ?? "Unknown";
             var assets = latestRelease.GetProperty("assets");
             
+            var channelJsonFileName = $"releases.{channel}.json";
             string? releasesJsonUrl = null;
+            
             foreach (var asset in assets.EnumerateArray())
             {
                 var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.Equals("releases.win.json", StringComparison.OrdinalIgnoreCase))
+                if (name.Equals(channelJsonFileName, StringComparison.OrdinalIgnoreCase))
                 {
                     releasesJsonUrl = asset.GetProperty("browser_download_url").GetString();
                     break;
@@ -617,19 +619,19 @@ public class UpdateService : IUpdateService
 
             if (releasesJsonUrl != null)
             {
-                _logger.Info($"Found releases.win.json in {tagName}: {releasesJsonUrl}");
+                _logger.Info($"Found {channelJsonFileName} in {tagName}: {releasesJsonUrl}");
                 
                 try
                 {
                     var jsonContent = await httpClient.GetStringAsync(releasesJsonUrl);
-                    _logger.Info($"releases.win.json content length: {jsonContent.Length} chars");
+                    _logger.Info($"{channelJsonFileName} content length: {jsonContent.Length} chars");
                     
                     // Парсим и анализируем содержимое
                     var releasesDoc = JsonDocument.Parse(jsonContent);
                     if (releasesDoc.RootElement.TryGetProperty("releases", out var releasesArray))
                     {
                         var releasesCount = releasesArray.GetArrayLength();
-                        _logger.Info($"releases.win.json contains {releasesCount} release entries");
+                        _logger.Info($"{channelJsonFileName} contains {releasesCount} release entries");
                         
                         var currentVersion = Version.Parse(CurrentVersion);
                         foreach (var releaseEntry in releasesArray.EnumerateArray())
@@ -647,24 +649,24 @@ public class UpdateService : IUpdateService
                     }
                     else
                     {
-                        _logger.Warning("releases.win.json does not contain 'releases' array property");
-                        _logger.Debug($"releases.win.json root properties: {string.Join(", ", releasesDoc.RootElement.EnumerateObject().Select(p => p.Name))}");
+                        _logger.Warning($"{channelJsonFileName} does not contain 'releases' array property");
+                        _logger.Debug($"{channelJsonFileName} root properties: {string.Join(", ", releasesDoc.RootElement.EnumerateObject().Select(p => p.Name))}");
                     }
                 }
                 catch (Exception jsonEx)
                 {
-                    _logger.Error($"Failed to read/parse releases.win.json: {jsonEx.Message}");
+                    _logger.Error($"Failed to read/parse {channelJsonFileName}: {jsonEx.Message}");
                 }
             }
             else
             {
-                _logger.Warning($"releases.win.json NOT FOUND in {tagName} - this is why Velopack fails!");
-                _logger.Warning("Velopack requires releases.win.json file, not just RELEASES");
+                _logger.Warning($"{channelJsonFileName} NOT FOUND in {tagName} - this is why Velopack fails!");
+                _logger.Warning($"Velopack requires {channelJsonFileName} file for {channel} channel");
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Error checking releases.win.json content: {ex.Message}");
+            _logger.Error($"Error checking releases.{channel}.json content: {ex.Message}");
         }
     }
 
@@ -837,3 +839,5 @@ public class UpdateService : IUpdateService
 - Надёжность автоматического входа";
     }
 }
+
+
