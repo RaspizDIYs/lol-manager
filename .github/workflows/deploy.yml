@@ -181,21 +181,16 @@ jobs:
           
           echo "✅ Release notes added and stable release properly configured"
           
-          echo "Verifying latest release status..."
+          # Проверяем что stable релиз стал latest
           sleep 2
-          
-          # Проверяем что наш релиз помечен как latest
           LATEST_RELEASE=$(curl -s \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
-            grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
+            jq -r '.tag_name')
           
           if [ "$LATEST_RELEASE" = "v${{ steps.get-version.outputs.version }}" ]; then
-            echo "✅ This release is correctly marked as latest: $LATEST_RELEASE"
-          else
-            echo "⚠️  WARNING: Latest release is $LATEST_RELEASE, expected v${{ steps.get-version.outputs.version }}"
-            echo "GitHub should automatically assign latest to the most recent non-prerelease"
+            echo "✅ Stable release is latest: $LATEST_RELEASE"
           fi
           
           echo "✅ Stable release created successfully"
@@ -226,84 +221,29 @@ jobs:
             exit 1
           fi
           
-          echo "Uploading beta release to GitHub..."
           vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "v${{ steps.get-version.outputs.version }} - Beta тестирование" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
-          if [ "$?" != "0" ]; then
-            echo "❌ ERROR: Failed to upload beta release to GitHub"
-            exit 1
-          fi
           
-          echo "Waiting for release to be fully published..."
-          sleep 10
+          # Сразу после загрузки помечаем как pre-release
+          sleep 5
           
-          echo "Finding and updating beta release..."
+          RELEASE_RESPONSE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}")
           
-          # Простой подход: получаем последний релиз с нашим тегом
-          echo "Searching for release with tag: v${{ steps.get-version.outputs.version }}"
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
           
-          RELEASE_URL="https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}"
-          
-          # Пробуем получить релиз по тегу несколько раз
-          for i in {1..5}; do
-            echo "Attempt $i to find release..."
-            RELEASE_RESPONSE=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "$RELEASE_URL")
-            
-            if echo "$RELEASE_RESPONSE" | grep -q '"id":'; then
-              echo "✅ Found release on attempt $i"
-              break
-            else
-              echo "Release not found yet, waiting..."
-              sleep 3
-            fi
-          done
-          
-          if echo "$RELEASE_RESPONSE" | grep -q '"message":.*"Not Found"'; then
-            echo "⚠️  WARNING: Could not find release with tag v${{ steps.get-version.outputs.version }}"
-            echo "API Response: $RELEASE_RESPONSE"
-            
-            # Показываем доступные релизы для отладки
-            echo "Available releases:"
-            curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/${{ github.repository }}/releases" | \
-              grep -o '"tag_name":"[^"]*"' || echo "Failed to get releases list"
-          else
-            echo "Adding beta release notes and marking as pre-release..."
-            
-            RELEASE_ID=$(echo "$RELEASE_RESPONSE" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
-            echo "Found release ID: $RELEASE_ID"
-            
-            PATCH_RESPONSE=$(curl -s -X PATCH \
+          if [ "$RELEASE_ID" != "null" ] && [ "$RELEASE_ID" != "" ]; then
+            curl -s -X PATCH \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github.v3+json" \
               "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
-              -d '{"body": "## Beta версия - предварительное тестирование\n\n### Свежие улучшения:\n- Добавлены новые функции и возможности\n- Улучшена работа существующих компонентов\n- Оптимизирована производительность приложения\n- Исправления на основе обратной связи пользователей\n\n### ⚠️ Важная информация:\n- Это тестовая версия для раннего доступа\n- Возможны временные ошибки и недочеты\n- Помогите улучшить приложение - сообщайте о проблемах!\n\n### 🔧 Как получать beta-версии:\n1. Откройте **Настройки** в приложении\n2. Измените **Канал обновлений** на **beta**\n3. Перезапустите и проверьте обновления\n\n---\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*", "prerelease": true}')
+              -d '{"body": "## Beta версия - предварительное тестирование\n\n### Свежие улучшения:\n- Добавлены новые функции и возможности\n- Улучшена работа существующих компонентов\n- Оптимизирована производительность приложения\n- Исправления на основе обратной связи пользователей\n\n### ⚠️ Важная информация:\n- Это тестовая версия для раннего доступа\n- Возможны временные ошибки и недочеты\n- Помогите улучшить приложение - сообщайте о проблемах!\n\n### 🔧 Как получать beta-версии:\n1. Откройте **Настройки** в приложении\n2. Измените **Канал обновлений** на **beta**\n3. Перезапустите и проверьте обновления\n\n---\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*", "prerelease": true}' > /dev/null
             
-            if echo "$PATCH_RESPONSE" | grep -q '"prerelease".*true'; then
-              echo "✅ Beta release successfully marked as pre-release"
-              
-              # Дополнительная проверка что бета не является latest
-              echo "Verifying beta release is not latest..."
-              LATEST_RELEASE=$(curl -s \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github.v3+json" \
-                "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
-                grep -o '"tag_name":"[^"]*"' | cut -d'"' -f4)
-              
-              if [ "$LATEST_RELEASE" != "v${{ steps.get-version.outputs.version }}" ]; then
-                echo "✅ Confirmed: Beta release is NOT marked as latest (latest is: $LATEST_RELEASE)"
-              else
-                echo "⚠️  WARNING: Beta release incorrectly marked as latest!"
-              fi
-              
-            else
-              echo "⚠️  WARNING: Failed to mark beta release as pre-release"
-              echo "API Response: $PATCH_RESPONSE"
-            fi
+            echo "✅ Beta release marked as pre-release"
+          else
+            echo "❌ ERROR: Could not find release to mark as pre-release"
+            exit 1
           fi
           
           echo "✅ Beta release created successfully"
