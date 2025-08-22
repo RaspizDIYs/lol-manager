@@ -164,11 +164,18 @@ jobs:
           fi
           
           echo "Uploading release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "🚀 LolManager v${{ steps.get-version.outputs.version }} - Стабильный релиз" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload release to GitHub"
             exit 1
           fi
+          
+          echo "Adding release notes..."
+          curl -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
+            -d '{"body": "## 🎉 Стабильное обновление\n\n### ✨ Новые возможности и улучшения:\n- Повышена стабильность работы приложения\n- Улучшена производительность и скорость загрузки\n- Исправлены мелкие недочеты и ошибки\n- Обновлены компоненты для лучшей совместимости\n\n### 🔧 Установка и обновление:\n- **Новая установка**: Скачайте `LolManager-win-Setup.exe`\n- **Обновление**: Происходит автоматически\n\n---\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*"}'
           
           echo "✅ Stable release created successfully"
 
@@ -199,17 +206,17 @@ jobs:
           fi
           
           echo "Uploading beta release to GitHub..."
-          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "LolManager v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "🧪 LolManager v${{ steps.get-version.outputs.version }} - Beta тестирование" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
           if [ "$?" != "0" ]; then
             echo "❌ ERROR: Failed to upload beta release to GitHub"
             exit 1
           fi
           
-          echo "Marking release as pre-release..."
+          echo "Adding beta release notes and marking as pre-release..."
           curl -X PATCH \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
-            -d '{"prerelease": true}'
+            -d '{"body": "## 🧪 Beta версия - предварительное тестирование\n\n### 🚀 Свежие улучшения:\n- Добавлены новые функции и возможности\n- Улучшена работа существующих компонентов\n- Оптимизирована производительность приложения\n- Исправления на основе обратной связи пользователей\n\n### ⚠️ Важная информация:\n- Это тестовая версия для раннего доступа\n- Возможны временные ошибки и недочеты\n- Помогите улучшить приложение - сообщайте о проблемах!\n\n### 🔧 Как получать beta-версии:\n1. Откройте **Настройки** в приложении\n2. Измените **Канал обновлений** на **beta**\n3. Перезапустите и проверьте обновления\n\n---\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*", "prerelease": true}'
           
           echo "✅ Beta release created successfully"
