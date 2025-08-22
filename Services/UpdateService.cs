@@ -75,8 +75,8 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Channel: {channelName}, Include prerelease: {includePrerelease}");
             
-            // ВАЖНО: явно указываем канал, чтобы клиент искал releases.<channel>.json
-            var source = new GithubSource(repoUrl, null, includePrerelease, channelName);
+            // Источник GitHub; канал учитывается на стороне публикуемых файлов (releases.<channel>.json)
+            var source = new GithubSource(repoUrl, null, includePrerelease);
             _logger.Info($"GithubSource created successfully for channel '{channelName}'");
             
             return source;
