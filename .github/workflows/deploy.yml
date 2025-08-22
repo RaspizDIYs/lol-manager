@@ -36,9 +36,9 @@ jobs:
           CURRENT_VERSION=$(grep -oE '<Version>[^<]+' LolManager.csproj | sed 's/<Version>//')
           echo "Current version in csproj: $CURRENT_VERSION"
           
-          # Проверяем что версия валидна (формат X.Y.Z)
-          if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ ERROR: Invalid version format in csproj: $CURRENT_VERSION (expected: X.Y.Z)"
+          # Проверяем что версия валидна (формат X.Y.Z или X.Y.Z-beta.XX)
+          if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "❌ ERROR: Invalid version format in csproj: $CURRENT_VERSION (expected: X.Y.Z or X.Y.Z-beta.XX)"
             exit 1
           fi
           
