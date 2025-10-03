@@ -213,6 +213,8 @@ public class UpdateService : IUpdateService
     {
         try
         {
+            // Создаем резервные копии пользовательских данных перед обновлением
+            BackupUserData();
             _logger.Info("Starting update process...");
             
             var updateManager = GetUpdateManager();
@@ -261,8 +263,28 @@ public class UpdateService : IUpdateService
             await updateManager.DownloadUpdatesAsync(updateInfo);
             
             _logger.Info("Update downloaded, applying and restarting...");
+            
+            // Создаем аргументы для ApplyUpdatesAndRestart для сохранения пользовательских данных
+            var extraArgs = new List<string>();
+            
+            // Защита от удаления пользовательских данных в AppData
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var roamingLolManagerDir = Path.Combine(appDataPath, "LolManager");
+            extraArgs.Add($"--keepalive={roamingLolManagerDir}");
+            _logger.Info($"Added protection for user data directory: {roamingLolManagerDir}");
+            
+            // Защита от удаления пользовательских данных в LocalAppData
+            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
+            extraArgs.Add($"--keepalive={localLolManagerDir}");
+            _logger.Info($"Added protection for settings directory: {localLolManagerDir}");
+            
             // Применяем обновление. При необходимости даунгрейда (когда версия ниже) Velopack применит полный пакет.
-            updateManager.ApplyUpdatesAndRestart(updateInfo);
+            // Запускаем проверку пользовательских данных после перезапуска приложения
+            RegisterDataValidationAfterUpdate();
+            
+            // Применяем обновление и перезапускаем приложение
+            updateManager.ApplyUpdatesAndRestart(updateInfo.TargetFullRelease);
             
             return true;
         }
@@ -314,6 +336,27 @@ public class UpdateService : IUpdateService
                 return false;
             }
 
+            // Текущая версия приложения (с возможным -beta.N)
+            var fullCurrent = CurrentVersion;
+            string currentBaseStr = fullCurrent.Contains("-beta.")
+                ? fullCurrent.Split("-beta.")[0]
+                : fullCurrent;
+
+            if (!Version.TryParse(currentBaseStr, out var currentBase))
+            {
+                _logger.Error($"Failed to parse current base version: '{currentBaseStr}'");
+                return false;
+            }
+
+            _logger.Info($"Force downgrade check: currentBase={currentBase}, latestStable={latestStable}");
+
+            if (latestStable <= currentBase)
+            {
+                // На той же или более новой базовой версии — инсталлятор покажет 'та же версия'. Не запускаем.
+                _logger.Info("Stable channel selected but latest stable is not greater than current base version. Skipping installer to avoid 'same version' message.");
+                return false;
+            }
+
             var settings = _settingsService.LoadUpdateSettings();
             settings.UpdateChannel = "stable";
             _settingsService.SaveUpdateSettings(settings);
@@ -326,25 +369,44 @@ public class UpdateService : IUpdateService
                 return false;
             }
 
-            _logger.Info($"Attempting force downgrade to stable {latestStable}");
+            _logger.Info($"Attempting move to newer stable {latestStable} from base {currentBase}");
 
             var updateInfo = await updateManager.CheckForUpdatesAsync();
             if (updateInfo == null)
             {
-                _logger.Warning("No updateInfo for downgrade. Opening stable installer as fallback.");
+                _logger.Warning("No updateInfo available on stable. Using installer fallback to upgrade to newer stable.");
                 return await DownloadAndRunStableInstallerAsync();
             }
 
-            // Если Velopack не предлагает даунгрейд автоматически, fallback на инсталлятор
             try
             {
                 await updateManager.DownloadUpdatesAsync(updateInfo);
-                updateManager.ApplyUpdatesAndRestart(updateInfo);
+                
+                // Создаем аргументы для защиты пользовательских данных при даунгрейде
+                var extraArgs = new List<string>();
+                
+                // Защита от удаления пользовательских данных в AppData
+                var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                var roamingLolManagerDir = Path.Combine(appDataPath, "LolManager");
+                extraArgs.Add($"--keepalive={roamingLolManagerDir}");
+                _logger.Info($"Added protection for user data directory during downgrade: {roamingLolManagerDir}");
+                
+                // Защита от удаления пользовательских данных в LocalAppData
+                var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
+                extraArgs.Add($"--keepalive={localLolManagerDir}");
+                _logger.Info($"Added protection for settings directory during downgrade: {localLolManagerDir}");
+                
+                // Запускаем проверку пользовательских данных после перезапуска приложения
+                RegisterDataValidationAfterUpdate();
+                
+                // Применяем обновление и перезапускаем приложение
+                updateManager.ApplyUpdatesAndRestart(updateInfo.TargetFullRelease);
                 return true;
             }
             catch (Exception)
             {
-                _logger.Warning("Velopack apply failed during downgrade, using installer fallback");
+                _logger.Warning("Velopack apply failed during move to stable, using installer fallback");
                 return await DownloadAndRunStableInstallerAsync();
             }
         }
@@ -525,8 +587,8 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Found {releases.RootElement.GetArrayLength()} releases in GitHub");
             
-            // Проверяем содержимое releases.{channel}.json файла из latest release
-            await CheckReleasesChannelJsonContent(httpClient, repoOwner, repoName, releases, channel);
+            // Диагностика наличия Velopack артефактов (RELEASES, full/delta nupkg) и канал-специфичных JSON
+            await CheckVelopackArtifactsAsync(httpClient, repoOwner, repoName, releases, channel);
             
             int count = 0;
             foreach (var release in releases.RootElement.EnumerateArray().Take(5))
@@ -590,83 +652,76 @@ public class UpdateService : IUpdateService
         }
     }
 
-    private async Task CheckReleasesChannelJsonContent(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases, string channel)
+    private async Task CheckVelopackArtifactsAsync(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases, string channel)
     {
         try
         {
             var latestRelease = releases.RootElement.EnumerateArray().FirstOrDefault();
             if (latestRelease.ValueKind == JsonValueKind.Undefined)
             {
-                _logger.Warning($"No releases found to check releases.{channel}.json");
+                _logger.Warning("No releases found to check Velopack artifacts");
                 return;
             }
 
             var tagName = latestRelease.GetProperty("tag_name").GetString() ?? "Unknown";
             var assets = latestRelease.GetProperty("assets");
             
-            var channelJsonFileName = $"releases.{channel}.json";
-            string? releasesJsonUrl = null;
-            
+            bool hasReleasesTxt = false;
+            bool hasFullNupkg = false;
+            bool hasAnyDelta = false;
+            string? releasesWinJsonUrl = null;
+            string? channelJsonUrl = null;
+
             foreach (var asset in assets.EnumerateArray())
             {
                 var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.Equals(channelJsonFileName, StringComparison.OrdinalIgnoreCase))
+                if (name.Equals("RELEASES", StringComparison.OrdinalIgnoreCase)) hasReleasesTxt = true;
+                if (name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) && name.Contains("full", StringComparison.OrdinalIgnoreCase)) hasFullNupkg = true;
+                if (name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) && name.Contains("delta", StringComparison.OrdinalIgnoreCase)) hasAnyDelta = true;
+                if (name.Equals("releases.win.json", StringComparison.OrdinalIgnoreCase))
                 {
-                    releasesJsonUrl = asset.GetProperty("browser_download_url").GetString();
-                    break;
+                    releasesWinJsonUrl = asset.GetProperty("browser_download_url").GetString();
+                }
+                // Поддерживаем ваши артефакты каналов: release[s].{channel}.json
+                var expected1 = $"release.{channel}.json";
+                var expected2 = $"releases.{channel}.json";
+                if (name.Equals(expected1, StringComparison.OrdinalIgnoreCase) || name.Equals(expected2, StringComparison.OrdinalIgnoreCase))
+                {
+                    channelJsonUrl = asset.GetProperty("browser_download_url").GetString();
                 }
             }
 
-            if (releasesJsonUrl != null)
+            _logger.Info($"Velopack artifacts in latest release {tagName}: RELEASES={hasReleasesTxt}, full.nupkg={hasFullNupkg}, delta.nupkg={hasAnyDelta}");
+
+            if (!string.IsNullOrEmpty(releasesWinJsonUrl))
             {
-                _logger.Info($"Found {channelJsonFileName} in {tagName}: {releasesJsonUrl}");
-                
                 try
                 {
-                    var jsonContent = await httpClient.GetStringAsync(releasesJsonUrl);
-                    _logger.Info($"{channelJsonFileName} content length: {jsonContent.Length} chars");
-                    
-                    // Парсим и анализируем содержимое
-                    var releasesDoc = JsonDocument.Parse(jsonContent);
-                    if (releasesDoc.RootElement.TryGetProperty("releases", out var releasesArray))
-                    {
-                        var releasesCount = releasesArray.GetArrayLength();
-                        _logger.Info($"{channelJsonFileName} contains {releasesCount} release entries");
-                        
-                        var currentVersion = Version.Parse(CurrentVersion);
-                        foreach (var releaseEntry in releasesArray.EnumerateArray())
-                        {
-                            if (releaseEntry.TryGetProperty("version", out var versionProp))
-                            {
-                                var versionString = versionProp.GetString() ?? "";
-                                if (Version.TryParse(versionString, out var releaseVersion))
-                                {
-                                    var isNewer = releaseVersion > currentVersion;
-                                    _logger.Info($"  Release entry: v{versionString} (newer: {isNewer})");
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        _logger.Warning($"{channelJsonFileName} does not contain 'releases' array property");
-                        _logger.Debug($"{channelJsonFileName} root properties: {string.Join(", ", releasesDoc.RootElement.EnumerateObject().Select(p => p.Name))}");
-                    }
+                    var jsonContent = await httpClient.GetStringAsync(releasesWinJsonUrl);
+                    _logger.Info($"releases.win.json length: {jsonContent.Length} chars");
                 }
                 catch (Exception jsonEx)
                 {
-                    _logger.Error($"Failed to read/parse {channelJsonFileName}: {jsonEx.Message}");
+                    _logger.Warning($"Failed to fetch releases.win.json: {jsonEx.Message}");
                 }
             }
-            else
+
+            if (!string.IsNullOrEmpty(channelJsonUrl))
             {
-                _logger.Warning($"{channelJsonFileName} NOT FOUND in {tagName} - this is why Velopack fails!");
-                _logger.Warning($"Velopack requires {channelJsonFileName} file for {channel} channel");
+                try
+                {
+                    var jsonContent = await httpClient.GetStringAsync(channelJsonUrl);
+                    _logger.Info($"{Path.GetFileName(channelJsonUrl)} length: {jsonContent.Length} chars");
+                }
+                catch (Exception jsonEx)
+                {
+                    _logger.Warning($"Failed to fetch {channel} channel json: {jsonEx.Message}");
+                }
             }
         }
         catch (Exception ex)
         {
-            _logger.Error($"Error checking releases.{channel}.json content: {ex.Message}");
+            _logger.Error($"Error checking Velopack artifacts: {ex.Message}");
         }
     }
 
@@ -928,6 +983,174 @@ public class UpdateService : IUpdateService
         return false;
     }
 
+    // Создает резервные копии пользовательских файлов перед обновлением
+    private void BackupUserData()
+    {
+        try
+        {
+            _logger.Info("Creating backup of user data before update...");
+            
+            // Резервное копирование аккаунтов из AppData
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var roamingLolManagerDir = Path.Combine(appDataPath, "LolManager");
+            var accountsFilePath = Path.Combine(roamingLolManagerDir, "accounts.json");
+            
+            if (File.Exists(accountsFilePath))
+            {
+                var backupFileName = $"accounts.json.backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+                var backupPath = Path.Combine(roamingLolManagerDir, backupFileName);
+                File.Copy(accountsFilePath, backupPath);
+                _logger.Info($"Created accounts backup: {backupPath}");
+            }
+            
+            // Резервное копирование настроек из LocalAppData
+            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
+            var settingsFilePath = Path.Combine(localLolManagerDir, "settings.json");
+            var updateSettingsFilePath = Path.Combine(localLolManagerDir, "update-settings.json");
+            
+            if (File.Exists(settingsFilePath))
+            {
+                var backupFileName = $"settings.json.backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+                var backupPath = Path.Combine(localLolManagerDir, backupFileName);
+                File.Copy(settingsFilePath, backupPath);
+                _logger.Info($"Created settings backup: {backupPath}");
+            }
+            
+            if (File.Exists(updateSettingsFilePath))
+            {
+                var backupFileName = $"update-settings.json.backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+                var backupPath = Path.Combine(localLolManagerDir, backupFileName);
+                File.Copy(updateSettingsFilePath, backupPath);
+                _logger.Info($"Created update settings backup: {backupPath}");
+            }
+            
+            _logger.Info("User data backup completed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to create user data backup: {ex.Message}");
+            // Продолжаем обновление, даже если создание резервной копии не удалось
+        }
+    }
+    
+    // Регистрирует задачу проверки целостности пользовательских данных после обновления
+    private void RegisterDataValidationAfterUpdate()
+    {
+        try
+        {
+            _logger.Info("Registering post-update data validation...");
+            
+            // Создаем флаг для проверки данных после перезапуска
+            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
+            var validationFlagPath = Path.Combine(localLolManagerDir, "validate_after_update");
+            
+            // Записываем текущую версию для проверки после обновления
+            File.WriteAllText(validationFlagPath, CurrentVersion);
+            
+            _logger.Info($"Validation flag created: {validationFlagPath}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to register data validation: {ex.Message}");
+        }
+    }
+    
+    // Проверяет наличие и восстанавливает пользовательские данные, если необходимо
+    public void ValidateUserDataAfterUpdate()
+    {
+        try
+        {
+            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
+            var validationFlagPath = Path.Combine(localLolManagerDir, "validate_after_update");
+            
+            // Проверяем, нужно ли выполнять проверку данных
+            if (!File.Exists(validationFlagPath))
+            {
+                return; // Нет флага, проверка не требуется
+            }
+            
+            _logger.Info("Performing post-update data validation...");
+            
+            // Удаляем флаг проверки, чтобы не проверять повторно
+            string previousVersion = File.ReadAllText(validationFlagPath);
+            File.Delete(validationFlagPath);
+            
+            _logger.Info($"Update detected: {previousVersion} -> {CurrentVersion}");
+            
+            // Проверяем наличие файлов данных
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var roamingLolManagerDir = Path.Combine(appDataPath, "LolManager");
+            var accountsFilePath = Path.Combine(roamingLolManagerDir, "accounts.json");
+            
+            var updateSettingsFilePath = Path.Combine(localLolManagerDir, "update-settings.json");
+            
+            if (!Directory.Exists(roamingLolManagerDir))
+            {
+                _logger.Warning("User data directory not found, creating...");
+                Directory.CreateDirectory(roamingLolManagerDir);
+            }
+            
+            if (!Directory.Exists(localLolManagerDir))
+            {
+                _logger.Warning("Settings directory not found, creating...");
+                Directory.CreateDirectory(localLolManagerDir);
+            }
+            
+            // Проверяем наличие файла аккаунтов
+            if (!File.Exists(accountsFilePath))
+            {
+                _logger.Warning("Accounts file not found, looking for backup...");
+                
+                // Ищем последнюю резервную копию
+                var backupFiles = Directory.GetFiles(roamingLolManagerDir, "accounts.json.backup_*");
+                if (backupFiles.Length > 0)
+                {
+                    // Сортируем по дате (от новых к старым)
+                    Array.Sort(backupFiles);
+                    Array.Reverse(backupFiles);
+                    
+                    // Восстанавливаем из самой свежей копии
+                    File.Copy(backupFiles[0], accountsFilePath);
+                    _logger.Info($"Restored accounts from backup: {backupFiles[0]}");
+                }
+            }
+            
+            // Проверяем наличие файла настроек обновления
+            if (!File.Exists(updateSettingsFilePath))
+            {
+                _logger.Warning("Update settings file not found, looking for backup...");
+                
+                // Ищем последнюю резервную копию
+                var backupFiles = Directory.GetFiles(localLolManagerDir, "update-settings.json.backup_*");
+                if (backupFiles.Length > 0)
+                {
+                    // Сортируем по дате (от новых к старым)
+                    Array.Sort(backupFiles);
+                    Array.Reverse(backupFiles);
+                    
+                    // Восстанавливаем из самой свежей копии
+                    File.Copy(backupFiles[0], updateSettingsFilePath);
+                    _logger.Info($"Restored update settings from backup: {backupFiles[0]}");
+                }
+                else
+                {
+                    // Создаем настройки по умолчанию
+                    _settingsService.SaveUpdateSettings(new Models.UpdateSettings());
+                    _logger.Info("Created default update settings");
+                }
+            }
+            
+            _logger.Info("Post-update data validation completed");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to validate user data after update: {ex.Message}");
+        }
+    }
+    
     private string GetDefaultChangelog()
     {
         return @"# Changelog

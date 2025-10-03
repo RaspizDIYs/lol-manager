@@ -24,6 +24,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ILogger _logger;
     private readonly ISettingsService _settingsService;
     private readonly Lazy<UpdateService> _updateService;
+    private readonly AutoAcceptService _autoAcceptService;
 
     public ObservableCollection<AccountRecord> Accounts { get; } = new();
 
@@ -97,6 +98,29 @@ public partial class MainViewModel : ObservableObject
 	[ObservableProperty]
 	private SystemInfo systemInfo = new();
 
+	private bool _isAutoAcceptEnabled;
+	public bool IsAutoAcceptEnabled
+	{
+		get => _isAutoAcceptEnabled;
+		set
+		{
+			if (SetProperty(ref _isAutoAcceptEnabled, value))
+			{
+				_autoAcceptService.SetEnabled(value);
+				_logger.Info($"AutoAccept {(value ? "включен" : "выключен")}");
+			}
+		}
+	}
+
+	[ObservableProperty]
+	[NotifyPropertyChangedFor(nameof(LoginButtonText))]
+	private bool isLoggingIn = false;
+
+	[ObservableProperty]
+	private string loginStatus = string.Empty;
+
+	public string LoginButtonText => IsLoggingIn ? "Вход..." : "Войти";
+
 	[ObservableProperty]
 	private bool isChangelogVisible = false;
 
@@ -126,12 +150,12 @@ public partial class MainViewModel : ObservableObject
 		_logger = logger;
 		_settingsService = settingsService;
 		_updateService = new Lazy<UpdateService>(() => new UpdateService(_logger, _settingsService));
+		_autoAcceptService = new AutoAcceptService(_logger, _riotClientService);
 
 		_logger.Info("MainViewModel initialized");
 
 		foreach (var acc in _accountsStorage.LoadAll())
 		{
-			// Подписываемся на изменения IsSelected для каждого аккаунта
 			acc.PropertyChanged += OnAccountSelectionChanged;
 			Accounts.Add(acc);
 		}
@@ -586,23 +610,45 @@ public partial class MainViewModel : ObservableObject
         SelectedAccount = null;
     }
 
-    [RelayCommand(AllowConcurrentExecutions = true)]
+    [RelayCommand(AllowConcurrentExecutions = false)]
     private async Task LoginSelected()
     {
         if (SelectedAccount is null) return;
-        var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
-
+        
+        IsLoggingIn = true;
+        LoginStatus = "Подготовка к входу...";
+        
         try
         {
+            var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
             _logger.Info($"Login requested for {SelectedAccount.Username}");
+            
+            LoginStatus = "Выход из текущего аккаунта...";
             try { await _riotClientService.LogoutAsync(); } catch { }
+            
+            LoginStatus = "Закрытие клиента League of Legends...";
             try { await _riotClientService.KillLeagueAsync(includeRiotClient: false); } catch { }
+            
+            await Task.Delay(500);
+            
+            LoginStatus = $"Вход в {SelectedAccount.Username}...";
             await _riotClientService.LoginAsync(SelectedAccount.Username, password);
+            
+            LoginStatus = "Готово! Вход выполнен успешно";
+            await Task.Delay(1500);
+            LoginStatus = string.Empty;
         }
         catch (Exception ex)
         {
+            LoginStatus = $"Ошибка: {ex.Message}";
             _logger.Error($"Login error for {SelectedAccount.Username}: {ex}");
             MessageWindow.Show($"Ошибка входа: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка входа", MessageWindow.MessageType.Error);
+            await Task.Delay(3000);
+            LoginStatus = string.Empty;
+        }
+        finally
+        {
+            IsLoggingIn = false;
         }
     }
 
@@ -915,6 +961,7 @@ public partial class MainViewModel : ObservableObject
             UpdateSelectedAccountsCount();
         }
     }
+
 
     private void UpdateSelectedAccountsCount()
     {

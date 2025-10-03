@@ -261,7 +261,7 @@
                                               DataContext="{Binding}"/>
 
                         <!-- Add Account Page -->
-                        <pages:AddAccountPage Visibility="{Binding SelectedTabIndex, ConverterParameter=4, Converter={StaticResource IndexToVisibility}}" 
+                        <pages:AddAccountPage Visibility="{Binding SelectedTabIndex, ConverterParameter=5, Converter={StaticResource IndexToVisibility}}" 
                                              DataContext="{Binding}"/>
 
                     </Grid>

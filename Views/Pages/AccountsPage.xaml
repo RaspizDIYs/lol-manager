@@ -30,7 +30,16 @@
             </Style.Triggers>
         </Style>
         
-        <Style x:Key="NormalModeStyle" TargetType="StackPanel">
+        <Style x:Key="NormalModeStyle" TargetType="{x:Type StackPanel}">
+            <Setter Property="Visibility" Value="Visible"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsExportSelectionMode}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        
+        <Style x:Key="NormalModeGridStyle" TargetType="{x:Type Grid}">
             <Setter Property="Visibility" Value="Visible"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsExportSelectionMode}" Value="True">
@@ -52,15 +61,45 @@
             <ui:Button Appearance="Primary" Content="Добавить аккаунт" Command="{Binding OpenAddAccountCommand}" />
             <ui:Button Appearance="Secondary" Content="Редактировать" Margin="6,0,0,0" Command="{Binding EditSelectedCommand}" />
             <ui:Button Appearance="Danger" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
-            <ui:Button Appearance="Info" Content="Войти" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" />
-            <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" />
+            <ui:Button Appearance="Info" Content="{Binding LoginButtonText}" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
+            <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
+            <ui:ToggleSwitch IsChecked="{Binding IsAutoAcceptEnabled}" 
+                            Content="Автопринятие" 
+                            Margin="16,0,0,0"/>
         </StackPanel>
 
-        <!-- Export/Import Controls - Normal Mode -->
-        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,0,8,8" Style="{StaticResource NormalModeStyle}">
-            <ui:Button Content="Экспорт" Command="{Binding ExportAccountsCommand}" Appearance="Secondary" Margin="0,0,6,0"/>
-            <ui:Button Content="Импорт" Command="{Binding ImportAccountsCommand}" Appearance="Secondary"/>
-        </StackPanel>
+        <!-- Status display and Export/Import Controls - Normal Mode -->
+        <Grid Grid.Row="1" Margin="8,0,8,8" Style="{StaticResource NormalModeGridStyle}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- Login Status -->
+            <Border Grid.Column="0" 
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" 
+                    CornerRadius="4"
+                    Padding="12,6"
+                    Visibility="{Binding LoginStatus, Converter={StaticResource StringToVisibilityConverter}}">
+                <StackPanel Orientation="Horizontal">
+                    <ui:ProgressRing IsIndeterminate="True" 
+                                     Width="16" 
+                                     Height="16" 
+                                     Margin="0,0,8,0"
+                                     Visibility="{Binding IsLoggingIn, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <TextBlock Text="{Binding LoginStatus}" 
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+            
+            <!-- Export/Import Controls -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button Content="Экспорт" Command="{Binding ExportAccountsCommand}" Appearance="Secondary" Margin="0,0,6,0"
+                           IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}"/>
+                <ui:Button Content="Импорт" Command="{Binding ImportAccountsCommand}" Appearance="Secondary"
+                           IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}"/>
+            </StackPanel>
+        </Grid>
 
         <!-- Export Selection Controls -->
         <StackPanel Grid.Row="0" Grid.RowSpan="2" Margin="8" Style="{StaticResource ExportSelectionStyle}">
@@ -117,7 +156,7 @@
                     
                     <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="200" MinWidth="150"/>
                     <DataGridTextColumn Header="Заметка" Binding="{Binding Note}" Width="*" MinWidth="100"/>
-                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" Width="200" MinWidth="150"/>
+                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" Width="150" MinWidth="120"/>
                 </ui:DataGrid.Columns>
             </ui:DataGrid>
         </ui:Card>
