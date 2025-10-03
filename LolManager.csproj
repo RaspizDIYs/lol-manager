@@ -9,7 +9,7 @@
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <AssemblyTitle>LolManager</AssemblyTitle>
     <AssemblyDescription>League of Legends Manager</AssemblyDescription>
-    <Version>0.1.27-beta.1</Version>
+    <Version>0.2.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
@@ -23,5 +23,4 @@
   <ItemGroup>
     <Resource Include="icon.ico" />
   </ItemGroup>
-
 </Project>
