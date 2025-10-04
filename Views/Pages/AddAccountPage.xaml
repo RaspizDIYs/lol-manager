@@ -43,8 +43,6 @@
                     <ui:Button Content="Назад" Command="{Binding GoBackCommand}" Margin="0,0,10,0"/>
                 </StackPanel>
             </StackPanel>
-        
-        <!-- Removed export/import buttons - moved to AccountsPage -->
 
     </Grid>
 </UserControl>

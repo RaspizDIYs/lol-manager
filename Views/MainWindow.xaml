@@ -16,7 +16,9 @@
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
                  WindowCornerPreference="Round"
-                 Icon="/icon.ico">
+                 Icon="/icon.ico"
+                 Closing="Window_Closing"
+                 StateChanged="Window_StateChanged">
     <ui:FluentWindow.DataContext>
         <vm:MainViewModel />
     </ui:FluentWindow.DataContext>
@@ -231,6 +233,34 @@
                            Text="Информация"/>
                         </StackPanel>
                     </ui:Button>
+
+                    <!-- Автоматизация -->
+                    <ui:Button Command="{Binding OpenAutomationCommand}"
+                               ToolTip="Автоматизация" 
+                               Margin="0,10,0,0"
+                               HorizontalAlignment="Stretch"
+                               Height="40"
+                               HorizontalContentAlignment="Left">
+                        <ui:Button.Style>
+                            <Style TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
+                                <Setter Property="Appearance" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SelectedTabIndex}" Value="4">
+                                        <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource TextOnAccentFillColorPrimaryBrush}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ui:Button.Style>
+                        <StackPanel Orientation="Horizontal"
+                                    VerticalAlignment="Center">
+                            <ui:SymbolIcon Symbol="BotSparkle24"/>
+                            <TextBlock Margin="8,0,0,0" 
+                                       Visibility="{Binding IsNavExpanded, Converter={StaticResource BoolToVisibility}}"
+                                       Text="Автоматизация"/>
+                        </StackPanel>
+                    </ui:Button>
                 </StackPanel>
             </Border>
 
@@ -259,6 +289,9 @@
                         <!-- Information Page -->
                         <pages:InformationPage Visibility="{Binding SelectedTabIndex, ConverterParameter=3, Converter={StaticResource IndexToVisibility}}" 
                                               DataContext="{Binding}"/>
+
+                        <!-- Automation Page -->
+                        <pages:AutomationPage Visibility="{Binding SelectedTabIndex, ConverterParameter=4, Converter={StaticResource IndexToVisibility}}"/>
 
                         <!-- Add Account Page -->
                         <pages:AddAccountPage Visibility="{Binding SelectedTabIndex, ConverterParameter=5, Converter={StaticResource IndexToVisibility}}" 

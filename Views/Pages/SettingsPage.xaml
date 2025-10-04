@@ -19,6 +19,14 @@
             <StackPanel Margin="20">
                 <TextBlock Text="Настройки приложения" FontSize="18" FontWeight="Bold" Margin="0,0,0,20"/>
                 
+                <!-- Настройки интерфейса -->
+                <TextBlock Text="Интерфейс" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+                
+                <CheckBox x:Name="HideLoginCheckBox" 
+                          Content="Скрыть логин" 
+                          IsChecked="{Binding HideLogin}"
+                          Margin="0,0,0,30"/>
+                
                 <!-- Настройки обновлений -->
                 <TextBlock Text="Обновления" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
                 

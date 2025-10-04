@@ -98,6 +98,19 @@ public partial class MainViewModel : ObservableObject
 	[ObservableProperty]
 	private SystemInfo systemInfo = new();
 
+	private bool _hideLogin;
+	public bool HideLogin
+	{
+		get => _hideLogin;
+		set
+		{
+			if (SetProperty(ref _hideLogin, value))
+			{
+				_settingsService.SaveSetting("HideLogin", value);
+			}
+		}
+	}
+
 	private bool _isAutoAcceptEnabled;
 	public bool IsAutoAcceptEnabled
 	{
@@ -150,7 +163,10 @@ public partial class MainViewModel : ObservableObject
 		_logger = logger;
 		_settingsService = settingsService;
 		_updateService = new Lazy<UpdateService>(() => new UpdateService(_logger, _settingsService));
-		_autoAcceptService = new AutoAcceptService(_logger, _riotClientService);
+		
+		// Получаем DataDragonService через сервис-локатор
+		var dataDragonService = ((App)App.Current).GetService<Services.DataDragonService>();
+		_autoAcceptService = new AutoAcceptService(_logger, _riotClientService, dataDragonService);
 
 		_logger.Info("MainViewModel initialized");
 
@@ -164,6 +180,9 @@ public partial class MainViewModel : ObservableObject
 		
 		// Загружаем настройки обновлений
 		UpdateSettings = _settingsService.LoadUpdateSettings();
+		
+		// Загружаем настройку скрытия логина
+		_hideLogin = _settingsService.LoadSetting("HideLogin", false);
 		
 		        // Подписываемся на изменения настроек для автоматического сохранения
         PropertyChanged += (s, e) =>
@@ -269,12 +288,18 @@ public partial class MainViewModel : ObservableObject
 	}
 
 	[RelayCommand]
+	private void OpenAutomation()
+	{
+		SelectedTabIndex = 4;
+	}
+
+	[RelayCommand]
 	private void OpenAddAccount()
 	{
 		IsEditMode = false;
 		EditingAccount = null;
 		ClearForm();
-		SelectedTabIndex = 4;
+		SelectedTabIndex = 5;
 	}
 
 	[RelayCommand]
@@ -286,7 +311,7 @@ public partial class MainViewModel : ObservableObject
 		NewUsername = SelectedAccount.Username;
 		NewNote = SelectedAccount.Note;
 		NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
-		SelectedTabIndex = 4;
+		SelectedTabIndex = 5;
 	}
 
 	[RelayCommand]

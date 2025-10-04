@@ -65,7 +65,21 @@ public class SettingsService : ISettingsService
         {
             try
             {
-                return (T)Convert.ChangeType(value, typeof(T));
+                // Если value - это JsonElement, десериализуем его
+                if (value is JsonElement jsonElement)
+                {
+                    return JsonSerializer.Deserialize<T>(jsonElement.GetRawText()) ?? defaultValue;
+                }
+                
+                // Для простых типов используем Convert
+                if (typeof(T).IsPrimitive || typeof(T) == typeof(string))
+                {
+                    return (T)Convert.ChangeType(value, typeof(T));
+                }
+                
+                // Для сложных объектов пробуем сериализовать обратно
+                var json = JsonSerializer.Serialize(value);
+                return JsonSerializer.Deserialize<T>(json) ?? defaultValue;
             }
             catch { }
         }

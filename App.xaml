@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:converters="clr-namespace:LolManager.Converters"
-             ShutdownMode="OnMainWindowClose"
+             ShutdownMode="OnExplicitShutdown"
              StartupUri="Views/MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
@@ -21,6 +21,10 @@
             <converters:LogTypeConverter x:Key="LogTypeConverter" />
             <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter" />
             <converters:SelectedAccountsCountConverter x:Key="SelectedAccountsCountConverter" />
+            <converters:SummonerSpellImageConverter x:Key="SummonerSpellImageConverter" />
+            <converters:ChampionImageConverter x:Key="ChampionImageConverter" />
+            <converters:RoleButtonConverter x:Key="RoleButtonConverter" />
+            <converters:HideLoginConverter x:Key="HideLoginConverter" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

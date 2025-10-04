@@ -132,7 +132,8 @@
                           GridLinesVisibility="None" HeadersVisibility="Column"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           ScrollViewer.CanContentScroll="False"
-                          RowHeaderWidth="0">
+                          RowHeaderWidth="0"
+                          SelectionMode="Single">
 
                 <ui:DataGrid.Columns>
                     <!-- Selection Checkbox Column -->
@@ -154,7 +155,20 @@
                         </DataGridTemplateColumn.HeaderTemplate>
                     </DataGridTemplateColumn>
                     
-                    <DataGridTextColumn Header="Логин" Binding="{Binding Username}" Width="200" MinWidth="150"/>
+                    <DataGridTemplateColumn Header="Логин" Width="200" MinWidth="150">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock>
+                                    <TextBlock.Text>
+                                        <MultiBinding Converter="{StaticResource HideLoginConverter}">
+                                            <Binding Path="Username"/>
+                                            <Binding Path="DataContext.HideLogin" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                     <DataGridTextColumn Header="Заметка" Binding="{Binding Note}" Width="*" MinWidth="100"/>
                     <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" Width="150" MinWidth="120"/>
                 </ui:DataGrid.Columns>
