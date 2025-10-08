@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using LolManager.ViewModels;
 using LolManager.Services;
+using System.Collections.Generic;
 
 namespace LolManager.Views.Pages;
 
@@ -13,41 +14,135 @@ public partial class AutomationPage : UserControl
     public AutomationViewModel? ViewModel
     {
         get => (AutomationViewModel?)GetValue(ViewModelProperty);
-        set => SetValue(ViewModelProperty, value);
+        private set => SetValue(ViewModelProperty, value);
     }
-
-    private bool _isInitialized = false;
 
     public AutomationPage()
     {
         InitializeComponent();
         
-        // Инициализируем при первом показе страницы
-        IsVisibleChanged += OnIsVisibleChanged;
+        // Инициализируем ViewModel сразу в конструкторе
+        InitializeViewModel();
+        
+        // Простая инициализация без сложной логики
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
     }
 
-    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void InitializeViewModel()
     {
-        if (!IsVisible || _isInitialized) return;
+        if (ViewModel == null)
+        {
+            try
+            {
+                var app = (App)Application.Current;
+                var logger = app.GetService<ILogger>();
+                var settingsService = app.GetService<ISettingsService>();
+                var dataDragonService = app.GetService<DataDragonService>();
+                var autoAcceptService = app.GetService<AutoAcceptService>();
+                var runeDataService = app.GetService<RuneDataService>();
+                var riotClientService = app.GetService<IRiotClientService>() as RiotClientService;
+
+                ViewModel = new AutomationViewModel(logger!, settingsService!, dataDragonService!, autoAcceptService!, runeDataService!, riotClientService!);
+                
+                logger.Info("AutomationPage ViewModel initialized successfully");
+            }
+            catch (System.Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error initializing AutomationPage ViewModel: {ex.Message}");
+            }
+        }
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // Синхронизируем состояние автоматизации с MainViewModel
+        if (DataContext is MainViewModel mainViewModel && ViewModel != null)
+        {
+            ViewModel.IsAutomationEnabled = mainViewModel.IsAutomationEnabled;
+            
+            mainViewModel.PropertyChanged += MainViewModel_PropertyChanged;
+            ViewModel.PropertyChanged += AutomationViewModel_PropertyChanged;
+        }
+    }
+
+    private void MainViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.IsAutomationEnabled) && sender is MainViewModel mainViewModel)
+        {
+            if (ViewModel != null && ViewModel.IsAutomationEnabled != mainViewModel.IsAutomationEnabled)
+            {
+                ViewModel.IsAutomationEnabled = mainViewModel.IsAutomationEnabled;
+            }
+        }
+    }
+
+    private void AutomationViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(AutomationViewModel.IsAutomationEnabled) && sender is AutomationViewModel automationViewModel)
+        {
+            if (DataContext is MainViewModel mainViewModel && mainViewModel.IsAutomationEnabled != automationViewModel.IsAutomationEnabled)
+            {
+                mainViewModel.IsAutomationEnabled = automationViewModel.IsAutomationEnabled;
+            }
+        }
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        // Отписываемся от событий
+        if (DataContext is MainViewModel mainViewModel)
+        {
+            mainViewModel.PropertyChanged -= MainViewModel_PropertyChanged;
+        }
         
-        _isInitialized = true;
+        if (ViewModel != null)
+        {
+            ViewModel.PropertyChanged -= AutomationViewModel_PropertyChanged;
+        }
         
+        // Закрываем все дочерние окна при выгрузке страницы
+        CloseAllChildWindows();
+    }
+
+    private void CloseAllChildWindows()
+    {
         try
         {
-            var app = (App)Application.Current;
-            var logger = app.GetService<ILogger>();
-            var settingsService = app.GetService<ISettingsService>();
-            var dataDragonService = app.GetService<DataDragonService>();
-            var autoAcceptService = app.GetService<AutoAcceptService>();
-            
-            // Создаем ViewModel и устанавливаем как свойство
-            ViewModel = new AutomationViewModel(logger, settingsService, dataDragonService, autoAcceptService);
-            
-            logger.Info("AutomationPage initialized successfully");
+            var mainWindow = Application.Current.MainWindow;
+            if (mainWindow != null)
+            {
+                var windowsToClose = new List<Window>();
+                
+                foreach (Window window in Application.Current.Windows)
+                {
+                    if (window != mainWindow && window.IsVisible)
+                    {
+                        if (window.GetType().Name.Contains("RunePageEditor") || 
+                            window.Owner == mainWindow)
+                        {
+                            windowsToClose.Add(window);
+                        }
+                    }
+                }
+                
+                foreach (var window in windowsToClose)
+                {
+                    try
+                    {
+                        window.Close();
+                        System.Diagnostics.Debug.WriteLine($"Closed window: {window.GetType().Name}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error closing window {window.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
         }
         catch (System.Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Error initializing AutomationPage: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"Error closing child windows: {ex.Message}");
         }
     }
 }

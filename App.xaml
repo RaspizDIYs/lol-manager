@@ -25,6 +25,11 @@
             <converters:ChampionImageConverter x:Key="ChampionImageConverter" />
             <converters:RoleButtonConverter x:Key="RoleButtonConverter" />
             <converters:HideLoginConverter x:Key="HideLoginConverter" />
+            <converters:PixelBlurLoginConverter x:Key="PixelBlurLoginConverter" />
+            <converters:RuneImageConverter x:Key="RuneImageConverter" />
+            <converters:NotNullConverter x:Key="NotNullConverter" />
+            <converters:RunePagePreviewConverter x:Key="RunePagePreviewConverter" />
+            <converters:CollectionCountToVisibilityConverter x:Key="CollectionCountToVisibility" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

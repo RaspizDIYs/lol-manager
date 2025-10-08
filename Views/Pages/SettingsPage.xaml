@@ -27,6 +27,61 @@
                           IsChecked="{Binding HideLogin}"
                           Margin="0,0,0,30"/>
                 
+                <!-- Настройки автопринятия -->
+                <TextBlock Text="Автопринятие матчей" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+                
+                <TextBlock Text="Метод автопринятия:" Margin="0,0,0,10"/>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <RadioButton Content="Брутфорс (рекомендуется)" 
+                                 IsChecked="{Binding AutoAcceptMethodPolling}"
+                                 VerticalAlignment="Center"/>
+                    <Border Background="{DynamicResource TextFillColorTertiaryBrush}" 
+                            CornerRadius="8" 
+                            Width="16" 
+                            Height="16" 
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="В тупую принимаю матч каждые 2 секунды">
+                        <TextBlock Text="?" 
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" 
+                                   HorizontalAlignment="Center" 
+                                   VerticalAlignment="Center" 
+                                   FontWeight="Bold" 
+                                   FontSize="10"
+                                   Margin="0,0,0,1"/>
+                    </Border>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,30">
+                    <RadioButton Content="WebSocket" 
+                                 IsChecked="{Binding AutoAcceptMethodWebSocket}"
+                                 VerticalAlignment="Center"/>
+                    <Border Background="{DynamicResource TextFillColorTertiaryBrush}" 
+                            CornerRadius="8" 
+                            Width="16" 
+                            Height="16" 
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            ToolTip="Жду пока лига скажет, что нужно принять матч и принимаю его. Почему то не у всех работает или работает через раз (в разработке)">
+                        <TextBlock Text="?" 
+                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" 
+                                   HorizontalAlignment="Center" 
+                                   VerticalAlignment="Center" 
+                                   FontWeight="Bold" 
+                                   FontSize="10"
+                                   Margin="0,0,0,1"/>
+                    </Border>
+                </StackPanel>
+                
+                <!-- Настройки Reveal -->
+                <TextBlock Text="Reveal (Шпион)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
+                
+                <CheckBox x:Name="RevealEnabledCheckBox" 
+                          Content="Включить Reveal" 
+                          IsChecked="{Binding RevealSettings.IsEnabled}"
+                          Margin="0,0,0,30"/>
+                
                 <!-- Настройки обновлений -->
                 <TextBlock Text="Обновления" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,15"/>
                 
@@ -42,12 +97,6 @@
                               ItemsSource="{Binding UpdateChannels}"/>
                 </StackPanel>
                 
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
-                    <TextBlock Text="Интервал проверки (часы):" VerticalAlignment="Center" Margin="0,0,15,0"/>
-                    <TextBox Width="80" 
-                             Text="{Binding UpdateSettings.CheckIntervalHours}"
-                             VerticalAlignment="Center"/>
-                </StackPanel>
                 
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
                     <TextBlock Text="Последняя проверка:" VerticalAlignment="Center" Margin="0,0,15,0"/>

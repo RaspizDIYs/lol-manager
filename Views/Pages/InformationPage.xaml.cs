@@ -1,6 +1,10 @@
+using System;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.ComponentModel;
 using System.Windows.Documents;
+using System.Windows.Media;
 using LolManager.ViewModels;
 
 namespace LolManager.Views.Pages;
@@ -11,6 +15,21 @@ public partial class InformationPage : UserControl
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
+    }
+    
+    private void DiscordNick_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText("mejaikin");
+            
+            // Используем новый метод MainWindow для показа toast
+            var mainWindow = Window.GetWindow(this) as MainWindow;
+            mainWindow?.ShowToast("Ник скопирован в буфер обмена");
+        }
+        catch
+        {
+        }
     }
     
     private void OnDataContextChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)

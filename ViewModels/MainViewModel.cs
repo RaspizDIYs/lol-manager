@@ -25,6 +25,7 @@ public partial class MainViewModel : ObservableObject
     private readonly ISettingsService _settingsService;
     private readonly Lazy<UpdateService> _updateService;
     private readonly AutoAcceptService _autoAcceptService;
+    private readonly RevealService _revealService;
 
     public ObservableCollection<AccountRecord> Accounts { get; } = new();
 
@@ -98,6 +99,42 @@ public partial class MainViewModel : ObservableObject
 	[ObservableProperty]
 	private SystemInfo systemInfo = new();
 
+	[ObservableProperty]
+	private RevealSettings revealSettings = new();
+
+	[ObservableProperty]
+	private string revealApiStatus = "Не подключен";
+
+	[ObservableProperty]
+	private string revealApiStatusColor = "Gray";
+
+	[ObservableProperty]
+	private string revealTeamStatus = "Ожидание";
+
+	[ObservableProperty]
+	private string revealTeamStatusColor = "Gray";
+
+	[ObservableProperty]
+	private bool hasTeamInfo = false;
+
+	public ObservableCollection<PlayerInfo> TeamPlayers { get; } = new();
+
+	[ObservableProperty]
+	private List<RegionInfo> availableRegions = new()
+	{
+		new("euw1", "Europe West"),
+		new("eune1", "Europe Nordic & East"),
+		new("na1", "North America"),
+		new("br1", "Brazil"),
+		new("la1", "Latin America North"),
+		new("la2", "Latin America South"),
+		new("kr", "Korea"),
+		new("jp1", "Japan"),
+		new("oc1", "Oceania"),
+		new("tr1", "Turkey"),
+		new("ru", "Russia")
+	};
+
 	private bool _hideLogin;
 	public bool HideLogin
 	{
@@ -107,6 +144,48 @@ public partial class MainViewModel : ObservableObject
 			if (SetProperty(ref _hideLogin, value))
 			{
 				_settingsService.SaveSetting("HideLogin", value);
+			}
+		}
+	}
+
+	public bool AutoAcceptMethodPolling
+	{
+		get
+		{
+			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+			return settings.AutoAcceptMethod == "Polling";
+		}
+		set
+		{
+			if (value)
+			{
+				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+				settings.AutoAcceptMethod = "Polling";
+				_settingsService.SaveSetting("AutomationSettings", settings);
+				_autoAcceptService.SetAutomationSettings(settings);
+				OnPropertyChanged(nameof(AutoAcceptMethodPolling));
+				OnPropertyChanged(nameof(AutoAcceptMethodWebSocket));
+			}
+		}
+	}
+
+	public bool AutoAcceptMethodWebSocket
+	{
+		get
+		{
+			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+			return settings.AutoAcceptMethod != "Polling";
+		}
+		set
+		{
+			if (value)
+			{
+				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+				settings.AutoAcceptMethod = "WebSocket";
+				_settingsService.SaveSetting("AutomationSettings", settings);
+				_autoAcceptService.SetAutomationSettings(settings);
+				OnPropertyChanged(nameof(AutoAcceptMethodPolling));
+				OnPropertyChanged(nameof(AutoAcceptMethodWebSocket));
 			}
 		}
 	}
@@ -121,6 +200,23 @@ public partial class MainViewModel : ObservableObject
 			{
 				_autoAcceptService.SetEnabled(value);
 				_logger.Info($"AutoAccept {(value ? "включен" : "выключен")}");
+			}
+		}
+	}
+
+	private bool _isAutomationEnabled;
+	public bool IsAutomationEnabled
+	{
+		get => _isAutomationEnabled;
+		set
+		{
+			if (SetProperty(ref _isAutomationEnabled, value))
+			{
+				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+				settings.IsEnabled = value;
+				_settingsService.SaveSetting("AutomationSettings", settings);
+				_autoAcceptService.SetAutomationSettings(settings);
+				_logger.Info($"Automation {(value ? "включена" : "выключена")}");
 			}
 		}
 	}
@@ -164,9 +260,27 @@ public partial class MainViewModel : ObservableObject
 		_settingsService = settingsService;
 		_updateService = new Lazy<UpdateService>(() => new UpdateService(_logger, _settingsService));
 		
-		// Получаем DataDragonService через сервис-локатор
-		var dataDragonService = ((App)App.Current).GetService<Services.DataDragonService>();
+		// Получаем DataDragonService через сервис-локатор (с проверкой на null для дизайнера)
+		Services.DataDragonService? dataDragonService = null;
+		if (App.Current != null)
+		{
+			try
+			{
+				dataDragonService = ((App)App.Current).GetService<Services.DataDragonService>();
+			}
+			catch
+			{
+				// Сервисы ещё не зарегистрированы (дизайн-тайм)
+				dataDragonService = new Services.DataDragonService(_logger);
+			}
+		}
+		else
+		{
+			// В режиме дизайнера создаем временный экземпляр
+			dataDragonService = new Services.DataDragonService(_logger);
+		}
 		_autoAcceptService = new AutoAcceptService(_logger, _riotClientService, dataDragonService);
+		_revealService = new RevealService(_riotClientService, _logger);
 
 		_logger.Info("MainViewModel initialized");
 
@@ -181,19 +295,47 @@ public partial class MainViewModel : ObservableObject
 		// Загружаем настройки обновлений
 		UpdateSettings = _settingsService.LoadUpdateSettings();
 		
+		// Загружаем настройки Reveal
+		RevealSettings = _settingsService.LoadSetting<RevealSettings>("RevealSettings", new RevealSettings());
+		
+		// Устанавливаем API ключ и регион в сервисе
+		_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
+		
 		// Загружаем настройку скрытия логина
 		_hideLogin = _settingsService.LoadSetting("HideLogin", false);
 		
-		        // Подписываемся на изменения настроек для автоматического сохранения
-        PropertyChanged += (s, e) =>
-        {
-            if (e.PropertyName == nameof(UpdateSettings) && UpdateSettings != null)
-            {
-                _settingsService.SaveUpdateSettings(UpdateSettings);
-            }
-
-
-        };
+		// Загружаем состояние автоматизации
+		var automationSettings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+		_isAutomationEnabled = automationSettings.IsEnabled;
+		
+		// Подписываемся на изменения настроек для автоматического сохранения
+		PropertyChanged += (s, e) =>
+		{
+			if (e.PropertyName == nameof(UpdateSettings) && UpdateSettings != null)
+			{
+				_settingsService.SaveUpdateSettings(UpdateSettings);
+			}
+			if (e.PropertyName == nameof(RevealSettings) && RevealSettings != null)
+			{
+				_settingsService.SaveSetting("RevealSettings", RevealSettings);
+			}
+		};
+		
+		// Подписываемся на изменения настроек Reveal для автоматического сохранения
+		if (RevealSettings != null)
+		{
+			RevealSettings.PropertyChanged += (s, e) =>
+			{
+				_settingsService.SaveSetting("RevealSettings", RevealSettings);
+				
+				// Обновляем API ключ и регион в сервисе при изменении
+				if (e.PropertyName == nameof(RevealSettings.RiotApiKey) || 
+				    e.PropertyName == nameof(RevealSettings.SelectedRegion))
+				{
+					_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
+				}
+			};
+		}
 		
 		// Подписываемся на изменения фильтров логов
 		LogFilters.PropertyChanged += (s, e) => RefreshFilteredLogs();
@@ -208,41 +350,41 @@ public partial class MainViewModel : ObservableObject
 			{
 				if (e.PropertyName == nameof(UpdateSettings.UpdateChannel))
 				{
-									try
-				{
-					_updateService.Value.RefreshUpdateSource();
-					_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
-					_settingsService.SaveUpdateSettings(UpdateSettings);
-					_logger.Info("Update channel saved to update-settings.json");
-
-					// Предупреждение при переключении с beta на stable
-					if (UpdateSettings.UpdateChannel == "stable")
+					try
 					{
-						try
+						_updateService.Value.RefreshUpdateSource();
+						_logger.Info($"Update channel changed to: {UpdateSettings.UpdateChannel}");
+						_settingsService.SaveUpdateSettings(UpdateSettings);
+						_logger.Info("Update channel saved to update-settings.json");
+
+						// Предупреждение при переключении с beta на stable
+						if (UpdateSettings.UpdateChannel == "stable")
 						{
-							var res = System.Windows.MessageBox.Show(
-								"Вы переключились на стабильный канал. Установить последнюю стабильную версию сейчас? (иначе дождитесь следующего стабильного обновления)",
-								"Канал обновлений",
-								System.Windows.MessageBoxButton.YesNo,
-								System.Windows.MessageBoxImage.Question);
-							if (res == System.Windows.MessageBoxResult.Yes)
+							try
 							{
-								_ = Task.Run(async () =>
+								var res = System.Windows.MessageBox.Show(
+									"Вы переключились на стабильный канал. Установить последнюю стабильную версию сейчас? (иначе дождитесь следующего стабильного обновления)",
+									"Канал обновлений",
+									System.Windows.MessageBoxButton.YesNo,
+									System.Windows.MessageBoxImage.Question);
+								if (res == System.Windows.MessageBoxResult.Yes)
 								{
-									try
+									_ = Task.Run(async () =>
 									{
-										await _updateService.Value.ForceDowngradeToStableAsync();
-									}
-									catch (Exception exDowngrade)
-									{
-										_logger.Error($"Force downgrade failed: {exDowngrade.Message}");
-									}
-								});
+										try
+										{
+											await _updateService.Value.ForceDowngradeToStableAsync();
+										}
+										catch (Exception exDowngrade)
+										{
+											_logger.Error($"Force downgrade failed: {exDowngrade.Message}");
+										}
+									});
+								}
 							}
+							catch { }
 						}
-						catch { }
 					}
-				}
 					catch (Exception ex)
 					{
 						_logger.Error($"Failed to refresh update source: {ex.Message}");
@@ -294,12 +436,18 @@ public partial class MainViewModel : ObservableObject
 	}
 
 	[RelayCommand]
+	private void OpenSpy()
+	{
+		SelectedTabIndex = 5;
+	}
+
+	[RelayCommand]
 	private void OpenAddAccount()
 	{
 		IsEditMode = false;
 		EditingAccount = null;
 		ClearForm();
-		SelectedTabIndex = 5;
+		SelectedTabIndex = 6;
 	}
 
 	[RelayCommand]
@@ -372,10 +520,8 @@ public partial class MainViewModel : ObservableObject
 		{
 			IsChangelogVisible = true;
 			
-			if (string.IsNullOrEmpty(ChangelogText))
-			{
-				ChangelogText = await _updateService.Value.GetChangelogAsync();
-			}
+			// Всегда загружаем заново, чтобы отображались актуальные релизы по текущему каналу
+			ChangelogText = await _updateService.Value.GetChangelogAsync();
 		}
 		catch (Exception ex)
 		{
@@ -388,6 +534,8 @@ public partial class MainViewModel : ObservableObject
 	private void CloseChangelog()
 	{
 		IsChangelogVisible = false;
+		// Очищаем кэш чтобы при следующем открытии загрузились актуальные данные
+		ChangelogText = string.Empty;
 	}
 
 	private async Task CheckForUpdatesAsync()
@@ -417,12 +565,12 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-					var hasUpdates = await _updateService.Value.CheckForUpdatesAsync(forceCheck: true);
+			var hasUpdates = await _updateService.Value.CheckForUpdatesAsync(forceCheck: true);
 
-		// Перезагружаем настройки после проверки обновлений для обновления UI
-		UpdateSettings = _settingsService.LoadUpdateSettings();
+			// Перезагружаем настройках после проверки обновлений для обновления времени последней проверки в UI
+			UpdateSettings = _settingsService.LoadUpdateSettings();
 		
-		if (hasUpdates)
+			if (hasUpdates)
 			{
 				var updateWindow = new UpdateWindow(_updateService.Value);
 				updateWindow.Owner = Application.Current.MainWindow;
@@ -1053,7 +1201,144 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+	[RelayCommand]
+	private void ReportBug()
+	{
+		try
+		{
+			var url = "https://github.com/RaspizDIYs/lol-manager/issues/new";
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+			{
+				FileName = url,
+				UseShellExecute = true
+			});
+			_logger.Info($"Opened GitHub issue creation page: {url}");
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"Failed to open GitHub issues: {ex.Message}");
+			MessageWindow.Show($"Ошибка открытия страницы GitHub: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+		}
+	}
+
+	[RelayCommand]
+	private void OpenGitHub()
+	{
+		try
+		{
+			var url = "https://github.com/RaspizDIYs/lol-manager";
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+			{
+				FileName = url,
+				UseShellExecute = true
+			});
+			_logger.Info($"Opened GitHub repository: {url}");
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"Failed to open GitHub repository: {ex.Message}");
+			MessageWindow.Show($"Ошибка открытия GitHub: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+		}
+		}
+
+	[RelayCommand]
+	private async Task TestRevealConnection()
+	{
+		try
+		{
+			RevealApiStatus = "Проверка подключения...";
+			RevealApiStatusColor = "Orange";
+			
+			if (string.IsNullOrWhiteSpace(RevealSettings.RiotApiKey))
+			{
+				RevealApiStatus = "API ключ не указан";
+				RevealApiStatusColor = "Red";
+				return;
+			}
+			
+			_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
+			var isValid = await _revealService.TestApiKeyAsync();
+			
+			if (isValid)
+			{
+				RevealApiStatus = $"Подключение успешно ({RevealSettings.SelectedRegion.ToUpper()})";
+				RevealApiStatusColor = "Green";
+			}
+			else
+			{
+				RevealApiStatus = "Неверный API ключ или регион";
+				RevealApiStatusColor = "Red";
+			}
+		}
+		catch (Exception ex)
+		{
+			RevealApiStatus = $"Ошибка: {ex.Message}";
+			RevealApiStatusColor = "Red";
+			_logger.Error($"RevealConnection test failed: {ex.Message}");
+		}
+	}
+
+	[RelayCommand]
+	private async Task GetTeamInfo()
+	{
+		try
+		{
+			RevealTeamStatus = "Получение информации о команде...";
+			RevealTeamStatusColor = "Orange";
+			
+			// Обновляем API ключ и регион в сервисе
+			_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
+			
+			var teamInfo = await _revealService.GetTeamInfoAsync();
+			
+			if (teamInfo != null && teamInfo.Count > 0)
+			{
+				TeamPlayers.Clear();
+				foreach (var player in teamInfo)
+				{
+					TeamPlayers.Add(player);
+				}
+				
+				HasTeamInfo = true;
+				RevealTeamStatus = $"Найдено {teamInfo.Count} игроков";
+				RevealTeamStatusColor = "Green";
+			}
+			else
+			{
+				RevealTeamStatus = "Команда не найдена. Нужно быть в чемпионском селекте.";
+				RevealTeamStatusColor = "Orange";
+				HasTeamInfo = false;
+			}
+		}
+		catch (Exception ex)
+		{
+			RevealTeamStatus = $"Ошибка: {ex.Message}";
+			RevealTeamStatusColor = "Red";
+			_logger.Error($"GetTeamInfo failed: {ex.Message}");
+			HasTeamInfo = false;
+		}
+	}
+
+	[RelayCommand]
+	private void OpenUgg(string uggLink)
+	{
+		try
+		{
+			if (!string.IsNullOrEmpty(uggLink))
+			{
+				System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+				{
+					FileName = uggLink,
+					UseShellExecute = true
+				});
+				_logger.Info($"Opened U.GG link: {uggLink}");
+			}
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"Failed to open U.GG link: {ex.Message}");
+		}
+	}
+
 
 }
-
-

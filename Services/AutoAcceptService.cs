@@ -19,13 +19,16 @@ public class AutoAcceptService
     private bool _isAutoAcceptEnabled = false;
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _websocketTask;
+    private Task? _pollingTask;
     private double _lastAcceptedReadyCheckTimer = -1;
     private AutomationSettings? _automationSettings;
     private int _hasPickedChampion;
     private int _hasBannedChampion;
     private int _hasSetSummonerSpells;
     
-    private bool ShouldWebSocketBeActive => _isAutoAcceptEnabled || (_automationSettings?.IsEnabled == true);
+    private bool ShouldWebSocketBeActive => (_isAutoAcceptEnabled && UseWebSocketMethod) || (_automationSettings?.IsEnabled == true);
+    private bool ShouldPollingBeActive => (_isAutoAcceptEnabled && !UseWebSocketMethod);
+    private bool UseWebSocketMethod => _automationSettings?.AutoAcceptMethod != "Polling";
     
     public event EventHandler<string>? MatchAccepted;
 
@@ -52,21 +55,15 @@ public class AutoAcceptService
     {
         _automationSettings = settings;
         
-        if (settings != null)
+        if (settings != null && settings.IsEnabled)
         {
             _logger.Info($"🤖 Настройки автоматизации обновлены:");
-            _logger.Info($"  • Включено: {settings.IsEnabled}");
             _logger.Info($"  • Чемпион (пик): {settings.ChampionToPick ?? "(не выбрано)"}");
             _logger.Info($"  • Чемпион (бан): {settings.ChampionToBan ?? "(не выбрано)"}");
             _logger.Info($"  • Заклинание 1: {settings.SummonerSpell1 ?? "(не выбрано)"}");
             _logger.Info($"  • Заклинание 2: {settings.SummonerSpell2 ?? "(не выбрано)"}");
         }
-        else
-        {
-            _logger.Info("🤖 Настройки автоматизации очищены");
-        }
         
-        // Обновляем состояние WebSocket
         UpdateWebSocketState();
     }
     
@@ -83,26 +80,40 @@ public class AutoAcceptService
     
     private void UpdateWebSocketState()
     {
-        bool shouldBeActive = ShouldWebSocketBeActive;
-        bool isActive = _websocketTask != null && !_websocketTask.IsCompleted;
+        bool shouldWebSocketBeActive = ShouldWebSocketBeActive;
+        bool isWebSocketActive = _websocketTask != null && !_websocketTask.IsCompleted;
         
-        _logger.Info($"🔌 WebSocket состояние: должен быть активен={shouldBeActive}, сейчас активен={isActive}");
-        _logger.Info($"   AutoAccept={_isAutoAcceptEnabled}, Automation={_automationSettings?.IsEnabled == true}");
+        bool shouldPollingBeActive = ShouldPollingBeActive;
+        bool isPollingActive = _pollingTask != null && !_pollingTask.IsCompleted;
         
-        if (shouldBeActive && !isActive)
+        if (shouldWebSocketBeActive && !isWebSocketActive)
         {
-            // Запускаем WebSocket
             ResetChampSelectState();
+            _cancellationTokenSource?.Cancel();
             _cancellationTokenSource = new CancellationTokenSource();
             _websocketTask = Task.Run(() => RunWebSocketListenerAsync(_cancellationTokenSource.Token));
             _logger.Info("✅ WebSocket запущен");
         }
-        else if (!shouldBeActive && isActive)
+        else if (!shouldWebSocketBeActive && isWebSocketActive)
         {
-            // Останавливаем WebSocket
             _cancellationTokenSource?.Cancel();
             _websocketTask = null;
             _logger.Info("❌ WebSocket остановлен");
+        }
+        
+        if (shouldPollingBeActive && !isPollingActive)
+        {
+            ResetChampSelectState();
+            _cancellationTokenSource?.Cancel();
+            _cancellationTokenSource = new CancellationTokenSource();
+            _pollingTask = Task.Run(() => RunPollingListenerAsync(_cancellationTokenSource.Token));
+            _logger.Info("✅ Polling запущен");
+        }
+        else if (!shouldPollingBeActive && isPollingActive)
+        {
+            _cancellationTokenSource?.Cancel();
+            _pollingTask = null;
+            _logger.Info("❌ Polling остановлен");
         }
     }
     
@@ -113,6 +124,85 @@ public class AutoAcceptService
         Interlocked.Exchange(ref _hasSetSummonerSpells, 0);
     }
     
+    private async Task RunPollingListenerAsync(CancellationToken cancellationToken)
+    {
+        _logger.Info("AutoAccept: Polling listener запущен (брутфорс метод)");
+        
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var lcuInfo = await FindLcuLockfileInfoAsync();
+                if (lcuInfo == null)
+                {
+                    await Task.Delay(2000, cancellationToken);
+                    continue;
+                }
+                
+                var (port, password) = lcuInfo.Value;
+                using var client = CreateHttpClient(port, password);
+                
+                try
+                {
+                    var response = await client.GetAsync("/lol-matchmaking/v1/ready-check");
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var content = await response.Content.ReadAsStringAsync();
+                        using var doc = JsonDocument.Parse(content);
+                        var root = doc.RootElement;
+                        
+                        if (root.TryGetProperty("state", out var state) && state.GetString() == "InProgress" &&
+                            root.TryGetProperty("playerResponse", out var playerResponse) && playerResponse.GetString() == "None")
+                        {
+                            double currentTimer = -1;
+                            if (root.TryGetProperty("timer", out var timerProp))
+                            {
+                                currentTimer = timerProp.GetDouble();
+                            }
+                            
+                            if (currentTimer > 0 && _lastAcceptedReadyCheckTimer > 0 && 
+                                Math.Abs(currentTimer - _lastAcceptedReadyCheckTimer) < 0.5)
+                            {
+                                await Task.Delay(300, cancellationToken);
+                                continue;
+                            }
+                            
+                            _lastAcceptedReadyCheckTimer = currentTimer;
+                            _logger.Info($"AutoAccept (Polling): 🎯 Ready-check обнаружен (таймер: {currentTimer:F1}s), принимаю...");
+                            
+                            await AcceptMatchAsync(port, password);
+                        }
+                    }
+                }
+                catch (HttpRequestException)
+                {
+                }
+                catch (TaskCanceledException)
+                {
+                }
+                
+                await Task.Delay(300, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.Info("AutoAccept: Polling listener остановлен");
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"AutoAccept Polling ошибка: {ex.GetType().Name} - {ex.Message}");
+                try
+                {
+                    await Task.Delay(2000, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }
+    }
+
     private async Task RunWebSocketListenerAsync(CancellationToken cancellationToken)
     {
         _logger.Info("AutoAccept: WebSocket listener запущен, начинаю поиск LCU...");
@@ -314,31 +404,19 @@ public class AutoAcceptService
 
     private async Task HandleChampSelectAsync(string message, int port, string password)
     {
-        if (_automationSettings == null)
+        if (_automationSettings == null || !_automationSettings.IsEnabled)
         {
-            _logger.Warning("⚠️ HandleChampSelectAsync: настройки null");
-            return;
-        }
-        
-        if (!_automationSettings.IsEnabled)
-        {
-            _logger.Info("⏸️ HandleChampSelectAsync: автоматизация ВЫКЛЮЧЕНА, пропускаю");
             return;
         }
         
         var pick = _automationSettings.ChampionToPick ?? string.Empty;
         var ban = _automationSettings.ChampionToBan ?? string.Empty;
         
-        // Очистка значений "(Не выбрано)" на всякий случай
         if (pick == "(Не выбрано)") pick = string.Empty;
         if (ban == "(Не выбрано)") ban = string.Empty;
         
-        _logger.Info($"🎯 HandleChampSelectAsync: IsEnabled=TRUE, Pick=[{pick}], Ban=[{ban}]");
-        
-        // Если ничего не настроено - выходим
         if (string.IsNullOrWhiteSpace(pick) && string.IsNullOrWhiteSpace(ban))
         {
-            _logger.Info("⏭️ Нечего делать: чемпионы не выбраны");
             return;
         }
 
@@ -361,37 +439,26 @@ public class AutoAcceptService
             return; // Это не событие сессии, игнорируем
         }
         
-        // Проверяем тип события
         if (eventData.TryGetProperty("eventType", out var eventType) && eventType.GetString() == "Delete")
         {
-            // Сессия завершена - сбрасываем флаги для следующего матча
-            _logger.Info("🔄 Сессия champ-select завершена, сброс флагов");
             ResetChampSelectState();
             return;
         }
         
         if (!eventData.TryGetProperty("data", out var data) || data.ValueKind == JsonValueKind.Null || data.ValueKind == JsonValueKind.Array)
         {
-            return; // Нет данных или это массив, а не объект сессии
+            return;
         }
 
-        _logger.Info("✅ Получена валидная сессия champ-select!");
-
-        // Получаем локального игрока
         if (!data.TryGetProperty("localPlayerCellId", out var localCellId))
         {
-            _logger.Warning("HandleChampSelectAsync: не найден localPlayerCellId");
             return;
         }
         
         int myCell = localCellId.GetInt32();
-        _logger.Info($"🎮 Моя ячейка: {myCell}");
 
-        // Обрабатываем действия
         if (data.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array)
         {
-            _logger.Info($"🔍 Обрабатываю действия (уже забанено: {_hasBannedChampion != 0}, уже выбрано: {_hasPickedChampion != 0})");
-            
             foreach (var actionGroup in actions.EnumerateArray())
             {
                 foreach (var action in actionGroup.EnumerateArray())
@@ -408,54 +475,22 @@ public class AutoAcceptService
                     var type = actionType.GetString();
                     var actionId = action.GetProperty("id").GetInt64();
                     
-                    _logger.Info($"🎯 Найдено действие: type={type}, actionId={actionId}, completed={completed.GetBoolean()}");
-                    
-                    // Бан
                     if (type == "ban")
                     {
-                        if (!string.IsNullOrWhiteSpace(ban))
+                        if (!string.IsNullOrWhiteSpace(ban) && Interlocked.CompareExchange(ref _hasBannedChampion, 1, 0) == 0)
                         {
-                            if (Interlocked.CompareExchange(ref _hasBannedChampion, 1, 0) == 0)
-                            {
-                                _logger.Info($"🚫 Выполняю бан: [{ban}]");
-                                await BanChampionAsync(port, password, actionId, ban);
-                            }
-                            else
-                            {
-                                _logger.Info($"⏭️ Бан уже выполнен ранее");
-                            }
-                        }
-                        else
-                        {
-                            _logger.Info($"⏭️ Пропускаю бан: чемпион не выбран");
+                            await BanChampionAsync(port, password, actionId, ban);
                         }
                     }
-                    // Выбор
                     else if (type == "pick")
                     {
-                        if (!string.IsNullOrWhiteSpace(pick))
+                        if (!string.IsNullOrWhiteSpace(pick) && Interlocked.CompareExchange(ref _hasPickedChampion, 1, 0) == 0)
                         {
-                            if (Interlocked.CompareExchange(ref _hasPickedChampion, 1, 0) == 0)
-                            {
-                                _logger.Info($"✨ Выполняю пик: [{pick}]");
-                                await PickChampionAsync(port, password, actionId, pick);
-                            }
-                            else
-                            {
-                                _logger.Info($"⏭️ Пик уже выполнен ранее");
-                            }
-                        }
-                        else
-                        {
-                            _logger.Info($"⏭️ Пропускаю пик: чемпион не выбран");
+                            await PickChampionAsync(port, password, actionId, pick);
                         }
                     }
                 }
             }
-        }
-        else
-        {
-            _logger.Info("ℹ️ Нет действий в данных champ-select");
         }
 
         // Устанавливаем саммонер спеллы (если они настроены)

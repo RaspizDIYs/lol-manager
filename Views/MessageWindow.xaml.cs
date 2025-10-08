@@ -1,4 +1,7 @@
 using System;
+using System.Diagnostics;
+using System.Text;
+using System.Web;
 using System.Windows;
 using Wpf.Ui.Controls;
 
@@ -22,7 +25,7 @@ public partial class MessageWindow : FluentWindow
         YesNo
     }
     
-    // Удаляем кастомный DialogResult - используем встроенный WPF
+    private string _fullErrorMessage = "";
     
     public MessageWindow()
     {
@@ -33,28 +36,31 @@ public partial class MessageWindow : FluentWindow
     {
         var window = new MessageWindow();
         
-        // Настройка владельца
-        if (owner != null)
+        // Настройка владельца - только если окно в нормальном состоянии
+        try
         {
-            window.Owner = owner;
-        }
-        else
-        {
-            // Попытка найти главное окно приложения
-            foreach (Window appWindow in Application.Current.Windows)
+            if (owner != null && owner.IsLoaded && owner.IsVisible)
             {
-                if (appWindow.GetType().Name == "MainWindow")
-                {
-                    window.Owner = appWindow;
-                    break;
-                }
+                window.Owner = owner;
             }
+            else if (Application.Current?.MainWindow != null && 
+                     Application.Current.MainWindow.IsLoaded && 
+                     Application.Current.MainWindow.IsVisible &&
+                     Application.Current.MainWindow != window)
+            {
+                window.Owner = Application.Current.MainWindow;
+            }
+        }
+        catch (Exception)
+        {
+            // Если не удалось установить Owner - игнорируем, окно откроется без родителя
         }
         
         // Настройка содержимого
         window.TitleText.Text = title;
         window.MessageText.Text = message;
         window.Title = title;
+        window._fullErrorMessage = message;
         
         // Настройка иконки и цвета в зависимости от типа сообщения
         switch (messageType)
@@ -67,6 +73,8 @@ public partial class MessageWindow : FluentWindow
                 break;
             case MessageType.Error:
                 window.MessageIcon.Symbol = Wpf.Ui.Controls.SymbolRegular.ErrorCircle24;
+                window.CopyButton.Visibility = Visibility.Visible;
+                window.ReportButton.Visibility = Visibility.Visible;
                 break;
             case MessageType.Success:
                 window.MessageIcon.Symbol = Wpf.Ui.Controls.SymbolRegular.CheckmarkCircle24;
@@ -109,5 +117,158 @@ public partial class MessageWindow : FluentWindow
     {
         this.DialogResult = false;
         Close();
+    }
+    
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(_fullErrorMessage);
+            
+            // Временно меняем текст кнопки для подтверждения
+            var originalContent = CopyButton.Content;
+            CopyButton.Content = "Скопировано!";
+            CopyButton.IsEnabled = false;
+            
+            // Возвращаем исходный текст через 1.5 секунды
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1.5)
+            };
+            timer.Tick += (s, args) =>
+            {
+                CopyButton.Content = originalContent;
+                CopyButton.IsEnabled = true;
+                timer.Stop();
+            };
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            // В случае ошибки копирования просто показываем сообщение
+            System.Diagnostics.Debug.WriteLine($"Ошибка копирования в буфер обмена: {ex.Message}");
+        }
+    }
+    
+    private void ReportButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var title = "Ошибка в приложении";
+            var body = CreateIssueBody();
+            
+            // Используем реальный репозиторий GitHub 
+            var url = $"https://github.com/RaspizDIYs/LolManager/issues/new?title={Uri.EscapeDataString(title)}&body={body}";
+            
+            // Альтернативный подход для открытия URL
+            try
+            {
+                System.Diagnostics.Process.Start("cmd", $"/c start \"\" \"{url}\"");
+            }
+            catch
+            {
+                // Если cmd не работает, пробуем explorer
+                System.Diagnostics.Process.Start("explorer", url);
+            }
+            
+            // Временно меняем текст кнопки для подтверждения
+            var originalContent = ReportButton.Content;
+            ReportButton.Content = "Открыто в браузере";
+            ReportButton.IsEnabled = false;
+            
+            // Возвращаем исходный текст через 2 секунды
+            var timer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            timer.Tick += (s, args) =>
+            {
+                ReportButton.Content = originalContent;
+                ReportButton.IsEnabled = true;
+                timer.Stop();
+            };
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Ошибка при открытии браузера: {ex.Message}");
+            // Fallback - копируем URL в буфер обмена
+            try
+            {
+                var title = "Ошибка в приложении";
+                var body = CreateIssueBodyPlain(); // Используем версию без URL encoding для копирования
+                var url = $"https://github.com/RaspizDIYs/LolManager/issues/new?title={Uri.EscapeDataString(title)}&body={Uri.EscapeDataString(body)}";
+                Clipboard.SetText(url);
+                
+                ReportButton.Content = "URL скопирован";
+                ReportButton.IsEnabled = false;
+                
+                var timer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(2)
+                };
+                timer.Tick += (s, args) =>
+                {
+                    ReportButton.Content = "Сообщить разработчику";
+                    ReportButton.IsEnabled = true;
+                    timer.Stop();
+                };
+                timer.Start();
+            }
+            catch
+            {
+                // Если и это не сработало - ничего не делаем
+            }
+        }
+    }
+    
+    private string CreateIssueBody()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## Описание ошибки");
+        sb.AppendLine(_fullErrorMessage);
+        sb.AppendLine();
+        sb.AppendLine("## Системная информация");
+        sb.AppendLine($"- ОС: {Environment.OSVersion}");
+        sb.AppendLine($"- .NET: {Environment.Version}");
+        sb.AppendLine($"- Время: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+        sb.AppendLine("## Шаги для воспроизведения");
+        sb.AppendLine("1. ");
+        sb.AppendLine("2. ");
+        sb.AppendLine("3. ");
+        sb.AppendLine();
+        sb.AppendLine("## Ожидаемое поведение");
+        sb.AppendLine("");
+        sb.AppendLine();
+        sb.AppendLine("## Фактическое поведение");
+        sb.AppendLine("");
+        
+        return Uri.EscapeDataString(sb.ToString());
+    }
+    
+    private string CreateIssueBodyPlain()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("## Описание ошибки");
+        sb.AppendLine(_fullErrorMessage);
+        sb.AppendLine();
+        sb.AppendLine("## Системная информация");
+        sb.AppendLine($"- ОС: {Environment.OSVersion}");
+        sb.AppendLine($"- .NET: {Environment.Version}");
+        sb.AppendLine($"- Время: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine();
+        sb.AppendLine("## Шаги для воспроизведения");
+        sb.AppendLine("1. ");
+        sb.AppendLine("2. ");
+        sb.AppendLine("3. ");
+        sb.AppendLine();
+        sb.AppendLine("## Ожидаемое поведение");
+        sb.AppendLine("");
+        sb.AppendLine();
+        sb.AppendLine("## Фактическое поведение");
+        sb.AppendLine("");
+        
+        return sb.ToString();
     }
 }

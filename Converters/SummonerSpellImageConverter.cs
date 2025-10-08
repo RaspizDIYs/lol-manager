@@ -27,7 +27,7 @@ public class SummonerSpellImageConverter : IValueConverter
             return $"https://ddragon.leagueoflegends.com/cdn/{LatestVersion}/img/spell/Summoner{spellName}.png";
         }
         
-        return null;
+        return string.Empty;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

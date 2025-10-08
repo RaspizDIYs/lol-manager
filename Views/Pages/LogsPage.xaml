@@ -45,10 +45,8 @@
             <StackPanel Grid.Row="1" Orientation="Horizontal">
                 <ui:Button Content="Выбрать всё" Command="{Binding SelectAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
                 <ui:Button Content="Снять всё" Command="{Binding ClearAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
-                <Separator Margin="10,0"/>
-                <ui:Button Content="Копировать всё" Command="{Binding CopyAllLogsCommand}" Appearance="Transparent" Margin="10,0,10,0"/>
-                <ui:Button Content="Копировать отфильтрованные" Command="{Binding CopyFilteredLogsCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
-                <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                <Separator Margin="5,0"/>
+                <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="10,0,10,0"/>
                 <ui:Button Content="Очистить логи" Command="{Binding ClearLogsCommand}" Appearance="Secondary" Margin="0,0,10,0"/>
                 <ui:Button Content="🔄 Обновить" Command="{Binding RefreshLogsCommand}" Appearance="Primary" Margin="0,0,10,0"/>
             </StackPanel>
@@ -92,9 +90,7 @@
             </ListBox.ItemContainerStyle>
             <ListBox.ContextMenu>
                 <ContextMenu>
-                    <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsWithParamCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding SelectedItems, RelativeSource={RelativeSource AncestorType=ListBox}}" />
-                    <MenuItem Header="Копировать всё" Command="{Binding PlacementTarget.DataContext.CopyAllLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                    <MenuItem Header="Копировать отфильтрованные" Command="{Binding PlacementTarget.DataContext.CopyFilteredLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsWithParamCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding PlacementTarget.SelectedItems, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     <Separator/>
                     <MenuItem Header="Открыть файл" Command="{Binding PlacementTarget.DataContext.OpenLogFileCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     <MenuItem Header="Очистить логи" Command="{Binding PlacementTarget.DataContext.ClearLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />

@@ -57,7 +57,7 @@
         </Grid.RowDefinitions>
 
         <!-- Top toolbar - Normal Mode -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Top" Margin="8" Style="{StaticResource NormalModeStyle}">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,0,8" Style="{StaticResource NormalModeStyle}">
             <ui:Button Appearance="Primary" Content="Добавить аккаунт" Command="{Binding OpenAddAccountCommand}" />
             <ui:Button Appearance="Secondary" Content="Редактировать" Margin="6,0,0,0" Command="{Binding EditSelectedCommand}" />
             <ui:Button Appearance="Danger" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
@@ -69,7 +69,7 @@
         </StackPanel>
 
         <!-- Status display and Export/Import Controls - Normal Mode -->
-        <Grid Grid.Row="1" Margin="8,0,8,8" Style="{StaticResource NormalModeGridStyle}">
+        <Grid Grid.Row="1" Margin="0,0,0,8" Style="{StaticResource NormalModeGridStyle}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -80,6 +80,7 @@
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}" 
                     CornerRadius="4"
                     Padding="12,6"
+                    Margin="2,0,10,0"
                     Visibility="{Binding LoginStatus, Converter={StaticResource StringToVisibilityConverter}}">
                 <StackPanel Orientation="Horizontal">
                     <ui:ProgressRing IsIndeterminate="True" 
@@ -102,7 +103,7 @@
         </Grid>
 
         <!-- Export Selection Controls -->
-        <StackPanel Grid.Row="0" Grid.RowSpan="2" Margin="8" Style="{StaticResource ExportSelectionStyle}">
+        <StackPanel Grid.Row="0" Grid.RowSpan="2" Margin="0,0,0,8" Style="{StaticResource ExportSelectionStyle}">
             <ui:Card Padding="16" Margin="0,0,0,8">
                 <StackPanel>
                     <TextBlock Text="Выберите аккаунты для экспорта" FontWeight="SemiBold" FontSize="16" Margin="0,0,0,12"/>
@@ -125,54 +126,273 @@
             </ui:Card>
         </StackPanel>
 
-        <!-- DataGrid -->
-        <ui:Card Grid.Row="2" Margin="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <!-- DataGrid with rounded corners -->
+        <Border Grid.Row="2" 
+                Margin="0,16,0,0" 
+                CornerRadius="12" 
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                Effect="{DynamicResource CardShadow}"
+                ClipToBounds="True">
             <ui:DataGrid ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}"
-                          AutoGenerateColumns="False" CanUserAddRows="False" IsReadOnly="True" VerticalAlignment="Stretch"
-                          GridLinesVisibility="None" HeadersVisibility="Column"
+                          AutoGenerateColumns="False" 
+                          CanUserAddRows="False" 
+                          IsReadOnly="True" 
+                          VerticalAlignment="Top"
+                          GridLinesVisibility="None" 
+                          HeadersVisibility="Column"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                           ScrollViewer.CanContentScroll="False"
                           RowHeaderWidth="0"
-                          SelectionMode="Single">
+                          SelectionMode="Single"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          Margin="0">
+
+                <ui:DataGrid.Resources>
+                    <!-- Убираем все конфликтующие стили -->
+                    <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="Transparent"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.ControlBrushKey}" Color="Transparent"/>
+                    <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="Transparent"/>
+                    
+                    <!-- Modern CheckBox Style -->
+                    <Style x:Key="ModernCheckBox" TargetType="CheckBox">
+                        <Setter Property="Width" Value="18"/>
+                        <Setter Property="Height" Value="18"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="CheckBox">
+                                    <Border x:Name="CheckboxBorder" 
+                                           Background="{DynamicResource ControlFillColorDefaultBrush}"
+                                           BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                           BorderThickness="1.5"
+                                           CornerRadius="4"
+                                           Width="18" Height="18">
+                                        <Path x:Name="CheckMark"
+                                             Data="M3,7 L7,11 L15,3"
+                                             Stroke="White"
+                                             StrokeThickness="2"
+                                             Visibility="Collapsed"
+                                             Stretch="Uniform"
+                                             Margin="2"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="CheckboxBorder" Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                            <Setter TargetName="CheckboxBorder" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                            <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                                        </Trigger>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="CheckboxBorder" Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ui:DataGrid.Resources>
+
+                <!-- Стили для заголовков без выделения -->
+                <ui:DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+                        <Setter Property="FontWeight" Value="SemiBold"/>
+                        <Setter Property="FontSize" Value="13"/>
+                        <Setter Property="Height" Value="44"/>
+                        <Setter Property="Padding" Value="16,8"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridColumnHeader">
+                                    <Border x:Name="HeaderBorder"
+                                           Background="{TemplateBinding Background}"
+                                           BorderThickness="0"
+                                           Padding="{TemplateBinding Padding}"
+                                           CornerRadius="12"
+                                           Margin="4, 4">
+                                        <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="HeaderBorder" Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}"/>
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter TargetName="HeaderBorder" Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ui:DataGrid.ColumnHeaderStyle>
+
+                <ui:DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="Height" Value="56"/>
+                        <Setter Property="Margin" Value="3"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridRow">
+                                    <Border x:Name="RowBorder"
+                                           Background="{TemplateBinding Background}"
+                                           BorderThickness="0"
+                                           CornerRadius="12"
+                                           Margin="0">
+                                        <SelectiveScrollingGrid>
+                                            <SelectiveScrollingGrid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </SelectiveScrollingGrid.ColumnDefinitions>
+                                            <SelectiveScrollingGrid.RowDefinitions>
+                                                <RowDefinition Height="*"/>
+                                            </SelectiveScrollingGrid.RowDefinitions>
+                                            <DataGridCellsPresenter Grid.Column="1"
+                                                                   Grid.Row="0"
+                                                                   ItemsPanel="{TemplateBinding ItemsPanel}"
+                                                                   SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                                        </SelectiveScrollingGrid>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="#FF3B82F6" Offset="0"/>
+                                            <GradientStop Color="#FF1E40AF" Offset="0.3"/>
+                                            <GradientStop Color="Transparent" Offset="0.7"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="#FF6366F1" Offset="0"/>
+                                            <GradientStop Color="#FF4C1D95" Offset="0.4"/>
+                                            <GradientStop Color="Transparent" Offset="0.8"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter Property="Background">
+                                    <Setter.Value>
+                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                            <GradientStop Color="#FF7C3AED" Offset="0"/>
+                                            <GradientStop Color="#FF5B21B6" Offset="0.5"/>
+                                            <GradientStop Color="Transparent" Offset="0.9"/>
+                                        </LinearGradientBrush>
+                                    </Setter.Value>
+                                </Setter>
+                            </MultiTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ui:DataGrid.RowStyle>
+
+                <ui:DataGrid.CellStyle>
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="0"/>
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+                        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Background="{TemplateBinding Background}" 
+                                           BorderThickness="0"
+                                           Padding="16,8">
+                                        <ContentPresenter VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+                            </Trigger>
+                            <MultiTrigger>
+                                <MultiTrigger.Conditions>
+                                    <Condition Property="IsSelected" Value="True"/>
+                                    <Condition Property="IsMouseOver" Value="True"/>
+                                </MultiTrigger.Conditions>
+                                <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+                            </MultiTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ui:DataGrid.CellStyle>
 
                 <ui:DataGrid.Columns>
-                    <!-- Selection Checkbox Column -->
-                    <DataGridTemplateColumn Header="Выбор" Width="60" MinWidth="60">
+                    <DataGridTemplateColumn Header="Логин" Width="200" MinWidth="150">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" 
-                                         HorizontalAlignment="Center" 
-                                         VerticalAlignment="Center"
-                                         Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox IsChecked="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" 
+                                             Style="{StaticResource ModernCheckBox}"
+                                             Margin="0,0,12,0"
+                                             Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                                    <TextBlock FontWeight="Medium" FontSize="14" VerticalAlignment="Center">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{StaticResource HideLoginConverter}">
+                                                <Binding Path="Username"/>
+                                                <Binding Path="DataContext.HideLogin" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                         <DataGridTemplateColumn.HeaderTemplate>
                             <DataTemplate>
-                                <CheckBox Content="Выбор" 
-                                         Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"
-                                         Command="{Binding DataContext.SelectAllAccountsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox Margin="0,0,12,0"
+                                             Visibility="{Binding DataContext.IsExportSelectionMode, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibilityConverter}}"
+                                             Command="{Binding DataContext.SelectAllAccountsCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                    <TextBlock Text="Логин" VerticalAlignment="Center"/>
+                                </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.HeaderTemplate>
                     </DataGridTemplateColumn>
                     
-                    <DataGridTemplateColumn Header="Логин" Width="200" MinWidth="150">
+                    <DataGridTemplateColumn Header="Заметка" Width="*" MinWidth="120">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBlock>
-                                    <TextBlock.Text>
-                                        <MultiBinding Converter="{StaticResource HideLoginConverter}">
-                                            <Binding Path="Username"/>
-                                            <Binding Path="DataContext.HideLogin" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                </TextBlock>
+                                <TextBlock Text="{Binding Note}" 
+                                          FontSize="13" 
+                                          TextWrapping="Wrap" 
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
-                    <DataGridTextColumn Header="Заметка" Binding="{Binding Note}" Width="*" MinWidth="100"/>
-                    <DataGridTextColumn Header="Сохранён" Binding="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" Width="150" MinWidth="120"/>
+                    
+                    <DataGridTemplateColumn Header="Сохранён" Width="160" MinWidth="140">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding CreatedAt, StringFormat='{}{0:dd.MM.yyyy HH:mm}'}" 
+                                          FontSize="12" 
+                                          VerticalAlignment="Center"
+                                          Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
                 </ui:DataGrid.Columns>
             </ui:DataGrid>
-        </ui:Card>
+        </Border>
     </Grid>
 </UserControl>
