@@ -199,6 +199,7 @@ public partial class MainViewModel : ObservableObject
 			if (SetProperty(ref _isAutoAcceptEnabled, value))
 			{
 				_autoAcceptService.SetEnabled(value);
+				_settingsService.SaveSetting("IsAutoAcceptEnabled", value);
 				_logger.Info($"AutoAccept {(value ? "включен" : "выключен")}");
 			}
 		}
@@ -307,6 +308,10 @@ public partial class MainViewModel : ObservableObject
 		// Загружаем состояние автоматизации
 		var automationSettings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
 		_isAutomationEnabled = automationSettings.IsEnabled;
+		
+		// Загружаем состояние автопринятия
+		_isAutoAcceptEnabled = _settingsService.LoadSetting("IsAutoAcceptEnabled", false);
+		_autoAcceptService.SetEnabled(_isAutoAcceptEnabled);
 		
 		// Подписываемся на изменения настроек для автоматического сохранения
 		PropertyChanged += (s, e) =>

@@ -17,8 +17,7 @@
                  WindowBackdropType="None"
                  WindowCornerPreference="Round"
                  Icon="/icon.ico"
-                 Closing="Window_Closing"
-                 StateChanged="Window_StateChanged">
+                 Closing="Window_Closing">
     <ui:FluentWindow.DataContext>
         <vm:MainViewModel />
     </ui:FluentWindow.DataContext>

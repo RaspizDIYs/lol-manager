@@ -2074,7 +2074,7 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
-            var lcuLock = FindLockfile("LeagueClientUx");
+            var lcuLock = FindLockfile("LCU");
             if (lcuLock == null)
             {
                 _logger.Error("LCU not found - League Client not running");
@@ -2137,7 +2137,7 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
-            var lcuLock = FindLockfile("LeagueClientUx");
+            var lcuLock = FindLockfile("LCU");
             if (lcuLock == null)
             {
                 _logger.Error("LCU not found - League Client not running");

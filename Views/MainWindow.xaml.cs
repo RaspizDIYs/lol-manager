@@ -64,7 +64,6 @@ public partial class MainWindow : FluentWindow
         };
         
         Closing += Window_Closing;
-        StateChanged += Window_StateChanged;
     }
 
     private void SetupTrayMenuItems()
@@ -252,31 +251,9 @@ public partial class MainWindow : FluentWindow
         _isRealClose = true;
         Application.Current.Shutdown();
     }
+    
+    
 
-    private void Window_StateChanged(object? sender, System.EventArgs e)
-    {
-        _logger?.Info($"[WINDOW] Window_StateChanged: {WindowState}");
-        if (WindowState == WindowState.Minimized)
-        {
-            var app = (App)Application.Current;
-            if (app.TrayIcon != null)
-            {
-                _logger?.Info("[WINDOW] Минимизация - сворачиваем в трей");
-                try
-                {
-                    Hide();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.Error($"[WINDOW] Ошибка скрытия при минимизации: {ex.Message}");
-                }
-            }
-            else
-            {
-                _logger?.Warning("[WINDOW] Минимизация - трей недоступен, остаемся в панели задач");
-            }
-        }
-    }
     
     public void ShowUpdateNotification(string version, Action downloadAction)
     {
