@@ -6,6 +6,7 @@ using System.Text.Json;
 using Velopack;
 using Velopack.Sources;
 using LolManager.Models;
+using LolManager.Services;
 
 namespace LolManager.Services;
 
@@ -13,6 +14,7 @@ public class UpdateService : IUpdateService
 {
     private readonly ILogger _logger;
     private readonly ISettingsService _settingsService;
+    private readonly NotificationService _notificationService;
     private UpdateManager? _updateManager;
 
     public string CurrentVersion 
@@ -38,6 +40,7 @@ public class UpdateService : IUpdateService
     {
         _logger = logger;
         _settingsService = settingsService;
+        _notificationService = new NotificationService();
     }
 
     private UpdateManager? GetUpdateManager()
@@ -123,21 +126,15 @@ public class UpdateService : IUpdateService
             _logger.Info($"Current version: {CurrentVersion}, Channel: {settings.UpdateChannel}");
             _logger.Info($"Update source: https://github.com/RaspizDIYs/lol-manager (channel: {settings.UpdateChannel})");
             
-            // Проверяем интервал проверки только для автоматических проверок
-            if (!forceCheck)
+            // Интервал проверки отключен - проверяем при каждом запуске приложения
+            // Оставляем логику только для принудительной проверки vs автоматической
+            if (forceCheck)
             {
-                var timeSinceLastCheck = DateTime.UtcNow - settings.LastCheckTime;
-                _logger.Info($"Time since last check: {timeSinceLastCheck.TotalHours:F1} hours (interval: {settings.CheckIntervalHours} hours)");
-                
-                if (settings.AutoUpdateEnabled && timeSinceLastCheck.TotalHours < settings.CheckIntervalHours)
-                {
-                    _logger.Info("Skipping automatic update check - interval not reached. Use manual check to force.");
-                    return false;
-                }
+                _logger.Info("Force check - manual update check requested");
             }
             else
             {
-                _logger.Info("Force check - ignoring interval restrictions");
+                _logger.Info("Automatic check - checking for updates on startup");
             }
                 
             // Обновляем время последней проверки
@@ -1171,6 +1168,20 @@ public class UpdateService : IUpdateService
 - Проблемы с холодным стартом Riot Client
 - Задержки при обнаружении элементов UI
 - Надёжность автоматического входа";
+    }
+
+    public async Task ShowUpdateNotificationAsync(string version)
+    {
+        try
+        {
+            await _notificationService.ShowUpdateNotificationAsync(version, 
+                downloadAction: async () => await UpdateAsync(),
+                dismissAction: () => _logger.Info("Update notification dismissed"));
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to show update notification: {ex.Message}");
+        }
     }
 }
 

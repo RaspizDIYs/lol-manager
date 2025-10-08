@@ -7,4 +7,5 @@ public interface IUpdateService
     Task<bool> UpdateAsync();
     Task<string> GetChangelogAsync();
     void RefreshUpdateSource();
+    Task ShowUpdateNotificationAsync(string version);
 }

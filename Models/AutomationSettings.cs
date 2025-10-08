@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -10,6 +11,9 @@ public class AutomationSettings : INotifyPropertyChanged
     private string _summonerSpell1 = string.Empty;
     private string _summonerSpell2 = string.Empty;
     private bool _isEnabled;
+    private string _autoAcceptMethod = "Polling";
+    private List<RunePage> _runePages = new();
+    private string _selectedRunePageName = string.Empty;
 
     public string ChampionToPick
     {
@@ -39,6 +43,24 @@ public class AutomationSettings : INotifyPropertyChanged
     {
         get => _isEnabled;
         set => SetProperty(ref _isEnabled, value);
+    }
+
+    public string AutoAcceptMethod
+    {
+        get => _autoAcceptMethod;
+        set => SetProperty(ref _autoAcceptMethod, value);
+    }
+
+    public List<RunePage> RunePages
+    {
+        get => _runePages;
+        set => SetProperty(ref _runePages, value);
+    }
+
+    public string SelectedRunePageName
+    {
+        get => _selectedRunePageName;
+        set => SetProperty(ref _selectedRunePageName, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

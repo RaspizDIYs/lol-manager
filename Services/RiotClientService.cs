@@ -268,15 +268,15 @@ public class RiotClientService : IRiotClientService
                                    ?? window;
                 if (riotContent != null && !contentLogged)
                 {
-                    try { _logger.Info($"UIA: riotContent class='{riotContent.Properties.ClassName.Value}'"); } catch { }
+                    try { _logger.Info($"UIA: riotContent class='{riotContent.Properties.ClassName?.Value ?? "null"}'"); } catch { }
                     contentLogged = true;
                 }
 
                 // 1) Пробуем по AutomationId
-                usernameEl ??= riotContent.FindFirstDescendant(cf =>
+                usernameEl ??= riotContent?.FindFirstDescendant(cf =>
                     cf.ByAutomationId("username").Or(cf.ByAutomationId("login")).Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя"))
                 )?.AsTextBox();
-                passwordEl ??= riotContent.FindFirstDescendant(cf =>
+                passwordEl ??= riotContent?.FindFirstDescendant(cf =>
                     cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password"))
                 )?.AsTextBox();
                 if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = DIRECT (username/password by AutomationId/Name)"); usernameLogged = true; }
@@ -285,7 +285,7 @@ public class RiotClientService : IRiotClientService
                 // 2) Если пусто — ищем Edit
                 if (usernameEl == null || passwordEl == null)
                 {
-                    var edits = riotContent.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit));
+                    var edits = riotContent?.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit)) ?? new FlaUI.Core.AutomationElements.AutomationElement[0];
                     if (edits.Length != lastEditsCount && (DateTime.Now - lastStateLog).TotalMilliseconds > 1000)
                     {
                         _logger.Info($"UIA: edits count in content = {edits.Length}");
@@ -315,7 +315,7 @@ public class RiotClientService : IRiotClientService
                 // 3) Кнопка Войти: сначала через чекбокс‑соседа
                 if (signInElement == null)
                 {
-                    var checkbox = riotContent.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                    var checkbox = riotContent?.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
                     if (checkbox != null && checkbox.Parent != null)
                     {
                         var siblings = checkbox.Parent.FindAllChildren();
@@ -332,7 +332,7 @@ public class RiotClientService : IRiotClientService
                     // 4) Фоллбек: любая кнопка по имени
                     if (signInElement == null)
                     {
-                        signInElement = riotContent.FindFirstDescendant(cf =>
+                        signInElement = riotContent?.FindFirstDescendant(cf =>
                             cf.ByControlType(ControlType.Button)
                               .And(cf.ByName("Sign in").Or(cf.ByName("Sign In")).Or(cf.ByName("Log In")).Or(cf.ByName("Войти"))));
                     }
@@ -458,7 +458,7 @@ public class RiotClientService : IRiotClientService
             // Найти и активировать чекбокс "Не выходить" (Remember Me)
             try
             {
-                var checkbox = riotContent.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                var checkbox = riotContent?.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
                 if (checkbox != null)
                 {
                     var checkboxControl = checkbox.AsCheckBox();
@@ -576,6 +576,8 @@ public class RiotClientService : IRiotClientService
         if (await TryLaunchLeagueClientAsync()) return;
         // Затем API (может быть недоступен на части билдов)
         if (await TryLaunchLeagueViaRiotApiAsync()) return;
+        // Затем попробуем через реестр
+        if (await TryLaunchLeagueViaRegistryAsync()) return;
         // Крайний случай — прямой запуск LeagueClient.exe (часто даёт AccessDenied/UAC)
         await TryLaunchLeagueClientDirectAsync();
     }
@@ -1268,19 +1270,56 @@ public class RiotClientService : IRiotClientService
         try
         {
             _logger.LoginFlow("Trying to launch League via RiotClientServices", "Searching for executable");
+            
+            // Сначала попробуем найти через RiotClientInstalls.json
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var installsPath = Path.Combine(programData, "Riot Games", "RiotClientInstalls.json");
+            string? riotClientPath = null;
+            
+            if (File.Exists(installsPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(installsPath);
+                    var installData = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
+                    if (installData?.associated_client != null)
+                    {
+                        foreach (var client in installData.associated_client)
+                        {
+                            var path = client?.rc_live?.Value as string;
+                            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                            {
+                                riotClientPath = path;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Failed to parse RiotClientInstalls.json: {ex.Message}");
+                }
+            }
+            
+            // Фоллбек кандидаты для RiotClientServices.exe
             var candidates = new[]
             {
+                riotClientPath,
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                     "Riot Games", "Riot Client", "RiotClientServices.exe"),
                 Path.Combine("C:\\Riot Games", "Riot Client", "RiotClientServices.exe"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Riot Games", "Riot Client", "RiotClientServices.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
                     "Riot Games", "Riot Client", "RiotClientServices.exe")
             };
+            
             string? exe = null;
             foreach (var p in candidates)
             {
-                if (File.Exists(p)) { exe = p; break; }
+                if (!string.IsNullOrEmpty(p) && File.Exists(p)) { exe = p; break; }
             }
+            
             if (exe == null) 
             { 
                 _logger.LoginFlow("RiotClientServices.exe not found", "Cannot launch League via RiotClientServices");
@@ -1298,7 +1337,7 @@ public class RiotClientService : IRiotClientService
             };
             Process.Start(psi);
             _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
-            await Task.Delay(2000);
+            await Task.Delay(3000); // Увеличиваем задержку
             return true;
         }
         catch (Exception ex)
@@ -1587,6 +1626,58 @@ public class RiotClientService : IRiotClientService
         return null;
     }
 
+    private async Task<bool> TryLaunchLeagueViaRegistryAsync()
+    {
+        try
+        {
+            _logger.Info("Trying to launch League via Windows Registry");
+            
+            // Ищем в реестре путь установки League of Legends
+            using (var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"))
+            {
+                if (key != null)
+                {
+                    foreach (var subKeyName in key.GetSubKeyNames())
+                    {
+                        using (var subKey = key.OpenSubKey(subKeyName))
+                        {
+                            var displayName = subKey?.GetValue("DisplayName")?.ToString();
+                            if (displayName != null && displayName.Contains("League of Legends"))
+                            {
+                                var installLocation = subKey?.GetValue("InstallLocation")?.ToString();
+                                if (!string.IsNullOrEmpty(installLocation))
+                                {
+                                    var leagueExe = Path.Combine(installLocation, "LeagueClient.exe");
+                                    if (File.Exists(leagueExe))
+                                    {
+                                        _logger.Info($"Found League via Registry: {leagueExe}");
+                                        var psi = new ProcessStartInfo
+                                        {
+                                            FileName = leagueExe,
+                                            UseShellExecute = true,
+                                            WorkingDirectory = installLocation
+                                        };
+                                        Process.Start(psi);
+                                        await Task.Delay(3000);
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            _logger.Info("League of Legends not found in Registry");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Launch League via Registry failed: {ex.Message}");
+            return false;
+        }
+    }
+
     private async Task<bool> TryLaunchLeagueClientDirectAsync()
     {
         try
@@ -1597,17 +1688,20 @@ public class RiotClientService : IRiotClientService
                 _logger.Error("LeagueClient.exe not found via installs map");
                 return false;
             }
+            
+            _logger.Info($"Attempting direct launch of LeagueClient.exe: {leagueExe}");
             var psi = new ProcessStartInfo
             {
                 FileName = leagueExe,
                 Arguments = string.Empty,
-                UseShellExecute = true,
-                Verb = IsAdministrator() ? "open" : "runas",
+                UseShellExecute = true, // Используем shell для обхода UAC
                 WorkingDirectory = Path.GetDirectoryName(leagueExe) ?? Environment.CurrentDirectory
             };
+            
+            // Не используем runas если не требуется
             Process.Start(psi);
             _logger.Info($"Started LeagueClient.exe: {leagueExe}");
-            await Task.Delay(2000);
+            await Task.Delay(3000); // Увеличиваем задержку
             return true;
         }
         catch (Exception ex)
@@ -1751,12 +1845,27 @@ public class RiotClientService : IRiotClientService
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                 "Riot Games", "League of Legends", "LeagueClient.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Riot Games", "League of Legends", "LeagueClient.exe"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Riot Games", "League of Legends", "LeagueClient.exe")
         };
-        foreach (var c in candidates) if (File.Exists(c)) return c;
+        foreach (var c in candidates) 
+        {
+            if (File.Exists(c)) 
+            {
+                _logger.Info($"Found LeagueClient.exe via fallback: {c}");
+                return c;
+            }
+        }
         // как дополнительный запасной вариант
         var ux = Path.Combine("C:\\Riot Games", "League of Legends", "LeagueClientUx.exe");
-        if (File.Exists(ux)) return ux;
+        if (File.Exists(ux)) 
+        {
+            _logger.Info($"Found LeagueClientUx.exe as fallback: {ux}");
+            return ux;
+        }
+        
+        _logger.Error("LeagueClient.exe not found in any standard location");
         return string.Empty;
     }
 
@@ -1959,6 +2068,171 @@ public class RiotClientService : IRiotClientService
         }
         catch (Exception ex) { _logger.Error($"{label} current-summoner error: {ex.Message}"); }
     }
+
+    // Методы для работы с рунами
+    public async Task<bool> ApplyRunePageAsync(Models.RunePage runePage)
+    {
+        try
+        {
+            var lcuLock = FindLockfile("LeagueClientUx");
+            if (lcuLock == null)
+            {
+                _logger.Error("LCU not found - League Client not running");
+                return false;
+            }
+
+            using var client = CreateHttpClient(lcuLock.Port, lcuLock.Password);
+
+            // Создаем объект страницы рун для LCU API
+            var lcuRunePage = new
+            {
+                name = runePage.Name,
+                primaryStyleId = runePage.PrimaryPathId,
+                subStyleId = runePage.SecondaryPathId,
+                selectedPerkIds = new[]
+                {
+                    runePage.PrimaryKeystoneId,
+                    runePage.PrimarySlot1Id,
+                    runePage.PrimarySlot2Id,
+                    runePage.PrimarySlot3Id,
+                    runePage.SecondarySlot1Id != 0 ? runePage.SecondarySlot1Id : 0,
+                    runePage.SecondarySlot2Id != 0 ? runePage.SecondarySlot2Id : 0,
+                    runePage.SecondarySlot3Id != 0 ? runePage.SecondarySlot3Id : 0,
+                    runePage.StatMod1Id,
+                    runePage.StatMod2Id,
+                    runePage.StatMod3Id
+                }.Where(id => id != 0).ToArray(),
+                current = true
+            };
+
+            var json = JsonSerializer.Serialize(lcuRunePage);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            _logger.Info($"Applying rune page: {runePage.Name}");
+
+            // Создаем страницу рун
+            var response = await client.PostAsync("/lol-perks/v1/pages", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.Info($"Rune page applied successfully: {responseContent}");
+                return true;
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.Error($"Failed to apply rune page: {(int)response.StatusCode} {response.ReasonPhrase} | {errorContent}");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error applying rune page: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<List<LcuRunePage>> GetRunePagesAsync()
+    {
+        try
+        {
+            var lcuLock = FindLockfile("LeagueClientUx");
+            if (lcuLock == null)
+            {
+                _logger.Error("LCU not found - League Client not running");
+                return new List<LcuRunePage>();
+            }
+
+            using var client = CreateHttpClient(lcuLock.Port, lcuLock.Password);
+
+            var response = await client.GetAsync("/lol-perks/v1/pages");
+
+            if (response.IsSuccessStatusCode)
+            {
+                var json = await response.Content.ReadAsStringAsync();
+                var runePages = JsonSerializer.Deserialize<List<LcuRunePage>>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+                return runePages ?? new List<LcuRunePage>();
+            }
+            else
+            {
+                _logger.Error($"Failed to get rune pages: {(int)response.StatusCode} {response.ReasonPhrase}");
+                return new List<LcuRunePage>();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Error getting rune pages: {ex.Message}");
+            return new List<LcuRunePage>();
+        }
+    }
+
+    public record LcuRunePage
+    {
+        public int id { get; set; }
+        public string name { get; set; } = string.Empty;
+        public int primaryStyleId { get; set; }
+        public int subStyleId { get; set; }
+        public int[] selectedPerkIds { get; set; } = Array.Empty<int>();
+        public bool current { get; set; }
+        public bool isEditable { get; set; }
+        public bool isActive { get; set; }
+    }
+
+	public async Task<string?> GetAsync(string endpoint)
+	{
+		var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(5));
+		if (lcu == null)
+		{
+			_logger.Error("LCU not found for GET request");
+			return null;
+		}
+
+		try
+		{
+			using var client = CreateHttpClient(lcu.Port, lcu.Password);
+			var response = await client.GetAsync(endpoint);
+			if (response.IsSuccessStatusCode)
+			{
+				return await response.Content.ReadAsStringAsync();
+			}
+			return null;
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"GET {endpoint} failed: {ex.Message}");
+			return null;
+		}
+	}
+
+	public async Task<string?> PostAsync(string endpoint, HttpContent content)
+	{
+		var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(5));
+		if (lcu == null)
+		{
+			_logger.Error("LCU not found for POST request");
+			return null;
+		}
+
+		try
+		{
+			using var client = CreateHttpClient(lcu.Port, lcu.Password);
+			var response = await client.PostAsync(endpoint, content);
+			if (response.IsSuccessStatusCode)
+			{
+				return await response.Content.ReadAsStringAsync();
+			}
+			return null;
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"POST {endpoint} failed: {ex.Message}");
+			return null;
+		}
+	}
 }
 
 

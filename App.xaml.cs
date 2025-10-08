@@ -23,6 +23,58 @@ public partial class App : Application
     private Thread? _ipcThread;
     public TaskbarIcon? TrayIcon { get; private set; }
     private ILogger? _logger;
+
+    public App()
+    {
+        DispatcherUnhandledException += App_DispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+    }
+
+    private static bool _isHandlingException = false;
+    
+    private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        if (_isHandlingException)
+        {
+            // Предотвращаем рекурсию
+            e.Handled = true;
+            return;
+        }
+        
+        _isHandlingException = true;
+        _logger?.Error($"[APP] Необработанная ошибка: {e.Exception}");
+        
+        try
+        {
+            // Используем только стандартный MessageBox для избежания рекурсии
+            MessageBox.Show($"Произошла ошибка: {e.Exception.Message}\n\nПриложение продолжит работу.", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        catch
+        {
+            // Если даже MessageBox не работает, просто игнорируем
+        }
+        finally
+        {
+            _isHandlingException = false;
+        }
+        
+        e.Handled = true;
+    }
+
+    private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        var exception = e.ExceptionObject as Exception;
+        _logger?.Error($"[APP] Критическая ошибка: {exception}");
+        try
+        {
+            Views.MessageWindow.Show($"Критическая ошибка: {exception?.Message ?? "Неизвестная ошибка"}", "Критическая ошибка", Views.MessageWindow.MessageType.Error);
+        }
+        catch
+        {
+            // Fallback если наше окно не работает
+            MessageBox.Show($"Критическая ошибка: {exception?.Message ?? "Неизвестная ошибка"}", "Критическая ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
     
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -118,12 +170,14 @@ public partial class App : Application
         var riotClientService = new RiotClientService(logger);
         var dataDragonService = new DataDragonService(logger);
         var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService);
+        var runeDataService = new RuneDataService();
         
         _services[typeof(ILogger)] = logger;
         _services[typeof(ISettingsService)] = settingsService;
         _services[typeof(IRiotClientService)] = riotClientService;
         _services[typeof(DataDragonService)] = dataDragonService;
         _services[typeof(AutoAcceptService)] = autoAcceptService;
+        _services[typeof(RuneDataService)] = runeDataService;
     }
 
     public T GetService<T>() where T : class
@@ -156,27 +210,30 @@ public partial class App : Application
                 _logger?.Error($"[APP] Ошибка загрузки иконки: {ex}");
             }
 
-            TrayIcon.ToolTipText = "LoL Account Manager";
+            TrayIcon.ToolTipText = "LoL Account Manager\n(F12 - показать окно)";
             
             var contextMenu = new ContextMenu();
             
-            var showItem = new MenuItem { Header = "Открыть" };
+            var showItem = new MenuItem { Header = "Открыть (F12)" };
             showItem.Click += (s, e) =>
             {
                 _logger?.Info("[APP] Трей: Открыть");
-                if (MainWindow != null)
+                Dispatcher.Invoke(() =>
                 {
-                    MainWindow.Show();
-                    MainWindow.WindowState = WindowState.Normal;
-                    MainWindow.Activate();
-                }
+                    if (MainWindow != null)
+                    {
+                        MainWindow.Show();
+                        MainWindow.WindowState = WindowState.Normal;
+                        MainWindow.Activate();
+                    }
+                });
             };
             
             var exitItem = new MenuItem { Header = "Закрыть" };
             exitItem.Click += (s, e) =>
             {
                 _logger?.Info("[APP] Трей: Закрыть приложение");
-                Shutdown();
+                Dispatcher.Invoke(() => Shutdown());
             };
             
             contextMenu.Items.Add(showItem);
@@ -188,20 +245,25 @@ public partial class App : Application
             TrayIcon.TrayMouseDoubleClick += (s, e) =>
             {
                 _logger?.Info("[APP] Двойной клик по трею");
-                if (MainWindow != null)
+                Dispatcher.Invoke(() =>
                 {
-                    MainWindow.Show();
-                    MainWindow.WindowState = WindowState.Normal;
-                    MainWindow.Activate();
-                }
+                    if (MainWindow != null)
+                    {
+                        MainWindow.Show();
+                        MainWindow.WindowState = WindowState.Normal;
+                        MainWindow.Activate();
+                    }
+                });
             };
             
             TrayIcon.Visibility = Visibility.Visible;
-            _logger?.Info($"[APP] TaskbarIcon инициализирован, Visibility={TrayIcon.Visibility}");
+            TrayIcon.ForceCreate();
+            _logger?.Info($"[APP] TaskbarIcon инициализирован и отображен, Visibility={TrayIcon.Visibility}");
         }
         catch (Exception ex)
         {
             _logger?.Error($"[APP] КРИТИЧЕСКАЯ ОШИБКА инициализации трея: {ex}");
+            TrayIcon = null;
         }
     }
 
@@ -223,20 +285,15 @@ public partial class App : Application
             {
                 _logger?.Info("[APP] ✅ Найдены обновления!");
                 
-                await Dispatcher.InvokeAsync(() =>
+                // Показываем уведомление внутри главного окна
+                Dispatcher.Invoke(() =>
                 {
-                    try
+                    if (MainWindow is Views.MainWindow mainWin)
                     {
-                        if (MainWindow != null)
+                        mainWin.ShowUpdateNotification(updateService.CurrentVersion, async () =>
                         {
-                            var updateWindow = new Views.UpdateWindow(updateService);
-                            updateWindow.Owner = MainWindow;
-                            updateWindow.ShowDialog();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.Error($"[APP] Ошибка показа окна обновления: {ex.Message}");
+                            await updateService.UpdateAsync();
+                        });
                     }
                 });
             }
@@ -257,8 +314,20 @@ public partial class App : Application
         try { _heartbeat?.Stop(); _heartbeat?.Dispose(); } catch { }
         try { _showEvent?.Dispose(); } catch { }
         try { TrayIcon?.Dispose(); } catch { }
-        _mutex?.ReleaseMutex();
-        _mutex?.Dispose();
+        
+        if (_mutex != null)
+        {
+            try 
+            { 
+                _mutex.ReleaseMutex(); 
+            } 
+            catch (ApplicationException) 
+            { 
+                // Мьютекс не был захвачен текущим потоком - это нормально при закрытии
+            }
+            _mutex.Dispose();
+        }
+        
         base.OnExit(e);
     }
 }

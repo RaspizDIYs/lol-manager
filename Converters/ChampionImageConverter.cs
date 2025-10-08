@@ -27,7 +27,7 @@ public class ChampionImageConverter : IValueConverter
             return $"https://ddragon.leagueoflegends.com/cdn/{LatestVersion}/img/champion/{championName}.png";
         }
         
-        return null;
+        return string.Empty;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
