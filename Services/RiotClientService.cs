@@ -9,7 +9,6 @@ using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Net;
@@ -20,15 +19,16 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.UIA3;
+using LolManager.Models;
 
 namespace LolManager.Services;
 
-public class RiotClientService : IRiotClientService
+public partial class RiotClientService : IRiotClientService
 {
     private record LockfileInfo(string Name, int Pid, int Port, string Password, string Protocol);
     private readonly ILogger _logger;
+    private static readonly Dictionary<string, DateTime> _lastLockfileLog = new();
 
-    public RiotClientService() : this(new FileLogger()) {}
     public RiotClientService(ILogger logger)
     {
         _logger = logger;
@@ -38,16 +38,20 @@ public class RiotClientService : IRiotClientService
     {
         try
         {
-            // Быстрая проверка по процессам и/или RC lockfile
             if (Process.GetProcessesByName("RiotClientServices").Length > 0) return true;
             if (Process.GetProcessesByName("Riot Client").Length > 0) return true;
-            try { _ = FindLockfile(product: "RC"); return true; } catch { }
+            try { _ = FindLockfile("RC"); return true; } catch { }
         }
         catch { }
         return false;
     }
 
     public async Task LoginAsync(string username, string password)
+    {
+        await LoginAsync(username, password, CancellationToken.None);
+    }
+
+    public async Task LoginAsync(string username, string password, CancellationToken externalToken)
     {
         var swAll = Stopwatch.StartNew();
         _logger.LoginFlow("LoginAsync start", "UIA flow in Riot Client");
@@ -108,6 +112,7 @@ public class RiotClientService : IRiotClientService
         // 3) Немедленно попытаться UIA-ввод (как только появится окно/DOM)
         sw.Restart();
         _logger.UiEvent("UIA", "starting TryLoginViaUIAutomationAsync");
+        externalToken.ThrowIfCancellationRequested();
         bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(45));
         _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
 
@@ -125,13 +130,14 @@ public class RiotClientService : IRiotClientService
             // Сначала проверяем авторизацию (быстро - каждые 300ms, до 6 сек)
             for (int i = 0; i < 20; i++)
             {
+                externalToken.ThrowIfCancellationRequested();
                 isAuthorized = await IsRsoAuthorizedAsync();
                 if (isAuthorized)
                 {
                     _logger.LoginFlow("RSO authorization confirmed", "Login successful");
                     break;
                 }
-                await Task.Delay(300);
+                await Task.Delay(300, externalToken);
             }
             
             if (!isAuthorized)
@@ -144,7 +150,7 @@ public class RiotClientService : IRiotClientService
                 _logger.LoginFlow("Authorization confirmed, launching League of Legends", "Starting launch sequence");
                 
                 try { await rcLockReady; } catch { }
-                await Task.Delay(500);
+                await Task.Delay(500, externalToken);
                 
                 var launched = await TryLaunchLeagueViaRiotApiAsync();
                 if (!launched) 
@@ -1906,7 +1912,21 @@ public class RiotClientService : IRiotClientService
                 ? "Не найден lockfile League Client. Откройте окно входа LoL."
                 : "Не найден lockfile Riot Client. Запустите Riot Client.");
 
-        _logger.Info($"Reading lockfile: {path}");
+        // Чтобы не спамить каждый вызов, логируем раз в 10 секунд максимум
+        try
+        {
+            var now = DateTime.UtcNow;
+            if (_lastLockfileLog.TryGetValue(product, out var last) && (now - last).TotalSeconds < 10)
+            {
+                // пропускаем лог
+            }
+            else
+            {
+                _lastLockfileLog[product] = now;
+                _logger.Debug($"Reading lockfile: {path}");
+            }
+        }
+        catch { _logger.Debug($"Reading lockfile: {path}"); }
         var text = ReadAllTextUnlocked(path).Trim();
         // Формат: name:pid:port:password:protocol
         var parts = text.Split(':');
@@ -2110,6 +2130,32 @@ public class RiotClientService : IRiotClientService
 
             _logger.Info($"Applying rune page: {runePage.Name}");
 
+            // Удаляем дубликат по имени (если есть редактируемая страница с тем же именем)
+            try
+            {
+                var existingPages = await GetRunePagesAsync();
+                var duplicate = existingPages.FirstOrDefault(p => p.isEditable && string.Equals(p.name, runePage.Name, StringComparison.OrdinalIgnoreCase));
+                if (duplicate != null)
+                {
+                    _logger.Info($"Found existing editable rune page with same name (id={duplicate.id}), deleting before apply");
+                    await client.DeleteAsync($"/lol-perks/v1/pages/{duplicate.id}");
+                }
+
+                // Если достигнут лимит редактируемых страниц, очистим самую старую не-актуальную
+                var editable = existingPages.Where(p => p.isEditable).ToList();
+                // Исторически лимит 20; оставим небольшой запас
+                if (editable.Count >= 20)
+                {
+                    var toDelete = editable.FirstOrDefault(p => !p.current) ?? editable.First();
+                    _logger.Warning($"Editable rune pages limit reached ({editable.Count}). Deleting page id={toDelete.id} name='{toDelete.name}'");
+                    await client.DeleteAsync($"/lol-perks/v1/pages/{toDelete.id}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Pre-apply cleanup failed: {ex.Message}");
+            }
+
             // Создаем страницу рун
             var response = await client.PostAsync("/lol-perks/v1/pages", content);
 
@@ -2123,6 +2169,36 @@ public class RiotClientService : IRiotClientService
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
                 _logger.Error($"Failed to apply rune page: {(int)response.StatusCode} {response.ReasonPhrase} | {errorContent}");
+
+                // На случай ошибки из-за лимита — предпримем одну попытку очистки и повтора
+                try
+                {
+                    var pages = await GetRunePagesAsync();
+                    var editable = pages.Where(p => p.isEditable).ToList();
+                    if (editable.Count > 0)
+                    {
+                        var toDelete = editable.FirstOrDefault(p => !p.current) ?? editable.First();
+                        _logger.Warning($"Retry: deleting page id={toDelete.id} then retrying apply");
+                        await client.DeleteAsync($"/lol-perks/v1/pages/{toDelete.id}");
+                        var retry = await client.PostAsync("/lol-perks/v1/pages", content);
+                        if (retry.IsSuccessStatusCode)
+                        {
+                            var ok = await retry.Content.ReadAsStringAsync();
+                            _logger.Info($"Rune page applied on retry: {ok}");
+                            return true;
+                        }
+                        else
+                        {
+                            var err2 = await retry.Content.ReadAsStringAsync();
+                            _logger.Error($"Retry failed: {(int)retry.StatusCode} {retry.ReasonPhrase} | {err2}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"Retry cleanup failed: {ex.Message}");
+                }
+
                 return false;
             }
         }
@@ -2145,7 +2221,6 @@ public class RiotClientService : IRiotClientService
             }
 
             using var client = CreateHttpClient(lcuLock.Port, lcuLock.Password);
-
             var response = await client.GetAsync("/lol-perks/v1/pages");
 
             if (response.IsSuccessStatusCode)
@@ -2170,16 +2245,28 @@ public class RiotClientService : IRiotClientService
         }
     }
 
-    public record LcuRunePage
+
+    public async Task<List<LcuPerk>> GetPerksAsync()
     {
-        public int id { get; set; }
-        public string name { get; set; } = string.Empty;
-        public int primaryStyleId { get; set; }
-        public int subStyleId { get; set; }
-        public int[] selectedPerkIds { get; set; } = Array.Empty<int>();
-        public bool current { get; set; }
-        public bool isEditable { get; set; }
-        public bool isActive { get; set; }
+        try
+        {
+            var lcu = FindLockfile("LCU");
+            if (lcu == null) return new List<LcuPerk>();
+            
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            var resp = await client.GetAsync("/lol-perks/v1/perks");
+            
+            if (!resp.IsSuccessStatusCode) return new List<LcuPerk>();
+            
+            var json = await resp.Content.ReadAsStringAsync();
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var perks = JsonSerializer.Deserialize<List<LcuPerk>>(json, opts) ?? new List<LcuPerk>();
+            return perks;
+        }
+        catch
+        {
+            return new List<LcuPerk>();
+        }
     }
 
 	public async Task<string?> GetAsync(string endpoint)
@@ -2232,7 +2319,115 @@ public class RiotClientService : IRiotClientService
 			_logger.Error($"POST {endpoint} failed: {ex.Message}");
 			return null;
 		}
+		// close PostAsync
 	}
+
+	    public async Task<(int Port, string Password)?> GetLcuAuthAsync()
+    {
+        try
+        {
+            var lcu = FindLockfile("LCU");
+            return (lcu.Port, lcu.Password);
+        }
+        catch
+        {
+            // Попробуем короткое ожидание на случай гоночного состояния
+            try
+            {
+                var ready = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(3));
+                if (ready != null)
+                {
+                    return (ready.Port, ready.Password);
+                }
+            }
+            catch { }
+        }
+        return null;
+	    }
+
+    public async Task<RunePage?> GetRecommendedRunePageAsync(int championId)
+    {
+        try
+        {
+            _logger.Info($"Fetching recommended runes for champion ID: {championId}");
+            using var client = new HttpClient();
+            var json = await client.GetStringAsync("http://cdn.merakianalytics.com/riot/lol/resources/latest/en-US/championrates.json");
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("data", out var dataElement))
+                return null;
+
+            if (!dataElement.TryGetProperty(championId.ToString(), out var champElement))
+                return null;
+            
+            var runePage = new RunePage { Name = $"Auto for {championId}" };
+
+            // Устанавливаем Primary Path и Keystone
+            var primaryPathId = champElement.GetProperty("primaryStyleId").GetInt32();
+            runePage.PrimaryPathId = primaryPathId;
+
+            var perks = champElement.GetProperty("perkIds").EnumerateArray().Select(p => p.GetInt32()).ToList();
+            runePage.PrimaryKeystoneId = perks[0];
+            runePage.PrimarySlot1Id = perks[1];
+            runePage.PrimarySlot2Id = perks[2];
+            runePage.PrimarySlot3Id = perks[3];
+            
+            runePage.SecondaryPathId = champElement.GetProperty("subStyleId").GetInt32();
+            runePage.SecondarySlot1Id = perks[4];
+            runePage.SecondarySlot2Id = perks[5];
+
+            runePage.StatMod1Id = perks[6];
+            runePage.StatMod2Id = perks[7];
+            runePage.StatMod3Id = perks[8];
+
+            return runePage;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to get recommended rune page for champ {championId}: {ex.Message}");
+            return null;
+        }
+    }
+
+    public async Task<string?> GetCurrentSummonerNameAsync()
+    {
+        try
+        {
+            var lcu = FindLockfile("LCU");
+            if (lcu == null) return null;
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            var resp = await client.GetAsync("/lol-summoner/v1/current-summoner");
+            if (!resp.IsSuccessStatusCode) return null;
+
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("displayName", out var name) ? name.GetString() : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    public async Task<string> GetCurrentSummonerPuuidAsync()
+    {
+        try
+        {
+            var lcu = FindLockfile("LCU");
+            if (lcu == null) return string.Empty;
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            var resp = await client.GetAsync("/lol-summoner/v1/current-summoner");
+            if (!resp.IsSuccessStatusCode) return string.Empty;
+
+            var json = await resp.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("puuid", out var puuid) ? puuid.GetString() ?? string.Empty : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
 }
 
 

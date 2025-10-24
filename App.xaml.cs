@@ -169,7 +169,7 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var riotClientService = new RiotClientService(logger);
         var dataDragonService = new DataDragonService(logger);
-        var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService);
+        var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService, settingsService);
         var runeDataService = new RuneDataService();
         
         _services[typeof(ILogger)] = logger;
@@ -311,6 +311,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         _logger?.Info("[APP] Выход из приложения, очистка ресурсов");
+        try { GetService<AutoAcceptService>()?.Shutdown(); } catch { }
         try { _heartbeat?.Stop(); _heartbeat?.Dispose(); } catch { }
         try { _showEvent?.Dispose(); } catch { }
         try { TrayIcon?.Dispose(); } catch { }

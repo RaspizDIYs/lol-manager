@@ -135,6 +135,28 @@ public partial class MainViewModel : ObservableObject
 		new("ru", "Russia")
 	};
 
+	public AutoAcceptMethod AutoAcceptMethod
+	{
+		get
+		{
+			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+			return AutoAcceptMethodExtensions.Parse(settings.AutoAcceptMethod);
+		}
+		set
+		{
+			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
+			var currentMethod = AutoAcceptMethodExtensions.Parse(settings.AutoAcceptMethod);
+        
+			if (currentMethod != value)
+			{
+				settings.AutoAcceptMethod = value.ToString();
+				_settingsService.SaveSetting("AutomationSettings", settings);
+				_autoAcceptService.SetAutomationSettings(settings);
+				OnPropertyChanged();
+			}
+		}
+	}
+	
 	private bool _hideLogin;
 	public bool HideLogin
 	{
@@ -144,48 +166,6 @@ public partial class MainViewModel : ObservableObject
 			if (SetProperty(ref _hideLogin, value))
 			{
 				_settingsService.SaveSetting("HideLogin", value);
-			}
-		}
-	}
-
-	public bool AutoAcceptMethodPolling
-	{
-		get
-		{
-			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-			return settings.AutoAcceptMethod == "Polling";
-		}
-		set
-		{
-			if (value)
-			{
-				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-				settings.AutoAcceptMethod = "Polling";
-				_settingsService.SaveSetting("AutomationSettings", settings);
-				_autoAcceptService.SetAutomationSettings(settings);
-				OnPropertyChanged(nameof(AutoAcceptMethodPolling));
-				OnPropertyChanged(nameof(AutoAcceptMethodWebSocket));
-			}
-		}
-	}
-
-	public bool AutoAcceptMethodWebSocket
-	{
-		get
-		{
-			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-			return settings.AutoAcceptMethod != "Polling";
-		}
-		set
-		{
-			if (value)
-			{
-				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-				settings.AutoAcceptMethod = "WebSocket";
-				_settingsService.SaveSetting("AutomationSettings", settings);
-				_autoAcceptService.SetAutomationSettings(settings);
-				OnPropertyChanged(nameof(AutoAcceptMethodPolling));
-				OnPropertyChanged(nameof(AutoAcceptMethodWebSocket));
 			}
 		}
 	}
@@ -226,6 +206,8 @@ public partial class MainViewModel : ObservableObject
 	[NotifyPropertyChangedFor(nameof(LoginButtonText))]
 	private bool isLoggingIn = false;
 
+    private System.Threading.CancellationTokenSource? _loginCts;
+
 	[ObservableProperty]
 	private string loginStatus = string.Empty;
 
@@ -249,7 +231,7 @@ public partial class MainViewModel : ObservableObject
 		: "Экспорт";
 
 	public MainViewModel()
-		: this(new AccountsStorage(new FileLogger()), new RiotClientService(), new FileLogger(), new SettingsService())
+		: this(new AccountsStorage(new FileLogger()), new RiotClientService(new FileLogger()), new FileLogger(), new SettingsService())
     {
     }
 
@@ -280,7 +262,15 @@ public partial class MainViewModel : ObservableObject
 			// В режиме дизайнера создаем временный экземпляр
 			dataDragonService = new Services.DataDragonService(_logger);
 		}
-		_autoAcceptService = new AutoAcceptService(_logger, _riotClientService, dataDragonService);
+        if (App.Current is App app)
+        {
+            try { _autoAcceptService = app.GetService<AutoAcceptService>(); }
+            catch { _autoAcceptService = new AutoAcceptService(_logger, _riotClientService, dataDragonService!, _settingsService); }
+        }
+        else
+        {
+            _autoAcceptService = new AutoAcceptService(_logger, _riotClientService, dataDragonService!, _settingsService);
+        }
 		_revealService = new RevealService(_riotClientService, _logger);
 
 		_logger.Info("MainViewModel initialized");
@@ -795,6 +785,8 @@ public partial class MainViewModel : ObservableObject
         
         IsLoggingIn = true;
         LoginStatus = "Подготовка к входу...";
+        _loginCts?.Cancel();
+        _loginCts = new System.Threading.CancellationTokenSource();
         
         try
         {
@@ -807,13 +799,19 @@ public partial class MainViewModel : ObservableObject
             LoginStatus = "Закрытие клиента League of Legends...";
             try { await _riotClientService.KillLeagueAsync(includeRiotClient: false); } catch { }
             
-            await Task.Delay(500);
+            await Task.Delay(500, _loginCts.Token);
             
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
-            await _riotClientService.LoginAsync(SelectedAccount.Username, password);
+            await _riotClientService.LoginAsync(SelectedAccount.Username, password, _loginCts.Token);
             
             LoginStatus = "Готово! Вход выполнен успешно";
-            await Task.Delay(1500);
+            await Task.Delay(1500, _loginCts.Token);
+            LoginStatus = string.Empty;
+        }
+        catch (OperationCanceledException)
+        {
+            LoginStatus = "Вход отменён";
+            await Task.Delay(1000);
             LoginStatus = string.Empty;
         }
         catch (Exception ex)
@@ -827,7 +825,15 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsLoggingIn = false;
+            _loginCts?.Dispose();
+            _loginCts = null;
         }
+    }
+
+    [RelayCommand]
+    private void CancelLogin()
+    {
+        try { _loginCts?.Cancel(); } catch { }
     }
 
     [RelayCommand]

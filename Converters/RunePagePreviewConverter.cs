@@ -54,7 +54,24 @@ public class RunePagePreviewConverter : IMultiValueConverter
             if (rune != null) runeIcons.Add(rune.Icon);
         }
         
-        return runeIcons.Take(6).ToArray();
+        // Добавляем шардовые иконки (3 шт.)
+        if (runePage.StatMod1Id != 0)
+        {
+            var shard = runeDataService.GetRuneById(runePage.StatMod1Id);
+            if (shard != null) runeIcons.Add(shard.Icon);
+        }
+        if (runePage.StatMod2Id != 0)
+        {
+            var shard = runeDataService.GetRuneById(runePage.StatMod2Id);
+            if (shard != null) runeIcons.Add(shard.Icon);
+        }
+        if (runePage.StatMod3Id != 0)
+        {
+            var shard = runeDataService.GetRuneById(runePage.StatMod3Id);
+            if (shard != null) runeIcons.Add(shard.Icon);
+        }
+
+        return runeIcons.Take(9).ToArray();
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

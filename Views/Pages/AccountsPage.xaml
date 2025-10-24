@@ -62,6 +62,7 @@
             <ui:Button Appearance="Secondary" Content="Редактировать" Margin="6,0,0,0" Command="{Binding EditSelectedCommand}" />
             <ui:Button Appearance="Danger" Content="Удалить" Margin="6,0,0,0" Command="{Binding RemoveSelectedCommand}" />
             <ui:Button Appearance="Info" Content="{Binding LoginButtonText}" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
+            <ui:Button Appearance="Danger" Content="✕ Отменить" Margin="6,0,0,0" Command="{Binding CancelLoginCommand}" IsEnabled="{Binding IsLoggingIn}" />
             <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
             <ui:ToggleSwitch IsChecked="{Binding IsAutoAcceptEnabled}" 
                             Content="Автопринятие" 

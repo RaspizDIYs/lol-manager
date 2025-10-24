@@ -270,7 +270,14 @@
                                                    Content="{Binding}"
                                                    Checked="PrimaryPath_Checked"
                                                    Style="{StaticResource PathIconButton}"
-                                                   ToolTip="{Binding Name}"/>
+                                                   ToolTip="{Binding Name}">
+                                            <RadioButton.IsChecked>
+                                                <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                    <Binding Path="DataContext.SelectedPrimaryPath" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                    <Binding Path="." Mode="OneWay"/>
+                                                </MultiBinding>
+                                            </RadioButton.IsChecked>
+                                        </RadioButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -293,7 +300,14 @@
                                                        Content="{Binding}"
                                                        Checked="KeystoneRune_Checked"
                                                        Style="{StaticResource KeystoneRuneButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedKeystone" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -314,7 +328,14 @@
                                                        Content="{Binding}"
                                                        Checked="PrimarySlot1Rune_Checked"
                                                        Style="{StaticResource CompactRuneButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedPrimarySlot1" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -334,7 +355,14 @@
                                                        Content="{Binding}"
                                                        Checked="PrimarySlot2Rune_Checked"
                                                        Style="{StaticResource CompactRuneButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedPrimarySlot2" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -354,7 +382,14 @@
                                                        Content="{Binding}"
                                                        Checked="PrimarySlot3Rune_Checked"
                                                        Style="{StaticResource CompactRuneButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedPrimarySlot3" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -397,7 +432,14 @@
                                                    Content="{Binding}"
                                                    Checked="SecondaryPath_Checked"
                                                    Style="{StaticResource PathIconButton}"
-                                                   ToolTip="{Binding Name}"/>
+                                                   ToolTip="{Binding Name}">
+                                            <RadioButton.IsChecked>
+                                                <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                    <Binding Path="DataContext.SelectedSecondaryPath" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                    <Binding Path="." Mode="OneWay"/>
+                                                </MultiBinding>
+                                            </RadioButton.IsChecked>
+                                        </RadioButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -426,7 +468,14 @@
                                                            Content="{Binding}"
                                                            Checked="SecondarySlot1Rune_Checked"
                                                            Style="{StaticResource CompactRuneButton}"
-                                                           ToolTip="{Binding Name}"/>
+                                                           ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedSecondarySlot1" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -446,7 +495,14 @@
                                                            Content="{Binding}"
                                                            Checked="SecondarySlot2Rune_Checked"
                                                            Style="{StaticResource CompactRuneButton}"
-                                                           ToolTip="{Binding Name}"/>
+                                                           ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedSecondarySlot2" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -466,7 +522,14 @@
                                                            Content="{Binding}"
                                                            Checked="SecondarySlot3Rune_Checked"
                                                            Style="{StaticResource CompactRuneButton}"
-                                                           ToolTip="{Binding Name}"/>
+                                                           ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedSecondarySlot3" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -486,7 +549,7 @@
                                 <ItemsControl ItemsSource="{Binding StatModsRow1}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <WrapPanel HorizontalAlignment="Center"/>
+                                            <UniformGrid Rows="1" Columns="3"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
@@ -495,7 +558,14 @@
                                                        Content="{Binding}"
                                                        Checked="StatMod1_Checked"
                                                        Style="{StaticResource StatModButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedStatMod1" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -505,7 +575,7 @@
                                 <ItemsControl ItemsSource="{Binding StatModsRow2}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <WrapPanel HorizontalAlignment="Center"/>
+                                            <UniformGrid Rows="1" Columns="3"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
@@ -514,7 +584,14 @@
                                                        Content="{Binding}"
                                                        Checked="StatMod2_Checked"
                                                        Style="{StaticResource StatModButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedStatMod2" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
@@ -524,7 +601,7 @@
                                 <ItemsControl ItemsSource="{Binding StatModsRow3}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
-                                            <WrapPanel HorizontalAlignment="Center"/>
+                                            <UniformGrid Rows="1" Columns="3"/>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
@@ -533,7 +610,14 @@
                                                        Content="{Binding}"
                                                        Checked="StatMod3_Checked"
                                                        Style="{StaticResource StatModButton}"
-                                                       ToolTip="{Binding Name}"/>
+                                                       ToolTip="{Binding Name}">
+                                                <RadioButton.IsChecked>
+                                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}" Mode="OneWay">
+                                                        <Binding Path="DataContext.SelectedStatMod3" RelativeSource="{RelativeSource AncestorType=Window}" Mode="OneWay"/>
+                                                        <Binding Path="." Mode="OneWay"/>
+                                                    </MultiBinding>
+                                                </RadioButton.IsChecked>
+                                            </RadioButton>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>

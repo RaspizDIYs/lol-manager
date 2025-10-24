@@ -14,6 +14,9 @@ public class AutomationSettings : INotifyPropertyChanged
     private string _autoAcceptMethod = "Polling";
     private List<RunePage> _runePages = new();
     private string _selectedRunePageName = string.Empty;
+    private bool _isPickDelayEnabled;
+    private int _pickDelaySeconds;
+    private bool _autoRuneGenerationEnabled;
 
     public string ChampionToPick
     {
@@ -61,6 +64,24 @@ public class AutomationSettings : INotifyPropertyChanged
     {
         get => _selectedRunePageName;
         set => SetProperty(ref _selectedRunePageName, value);
+    }
+
+    public bool AutoRuneGenerationEnabled
+    {
+        get => _autoRuneGenerationEnabled;
+        set => SetProperty(ref _autoRuneGenerationEnabled, value);
+    }
+
+    public bool IsPickDelayEnabled
+    {
+        get => _isPickDelayEnabled;
+        set => SetProperty(ref _isPickDelayEnabled, value);
+    }
+
+    public int PickDelaySeconds
+    {
+        get => _pickDelaySeconds;
+        set => SetProperty(ref _pickDelaySeconds, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

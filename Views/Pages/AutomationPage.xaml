@@ -136,6 +136,20 @@
                                 Content="Включить"
                                 Margin="0,0,0,16"/>
 
+                <!-- Задержка перед пиком -->
+                <StackPanel Margin="0,0,0,16">
+                    <CheckBox Content="Задержка перед пиком"
+                              IsChecked="{Binding IsPickDelayEnabled, Mode=TwoWay}"
+                              IsEnabled="{Binding IsAutomationEnabled}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <Slider Minimum="0" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
+                                Value="{Binding PickDelaySeconds, Mode=TwoWay}"
+                                IsEnabled="{Binding IsAutomationEnabled}" Width="200"/>
+                        <TextBlock Text="{Binding PickDelaySeconds}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="сек" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition/>
@@ -260,9 +274,13 @@
                 <TextBlock Text="Страницы рун" 
                            FontSize="16" 
                            FontWeight="SemiBold" 
-                           Margin="0,0,0,8"/>
+                           Margin="0,16,0,8"/>
             
-            <Grid Margin="0,0,0,16">
+                <ui:ToggleSwitch IsChecked="{Binding AutoRuneGenerationEnabled, Mode=TwoWay}" 
+                                 Content="Автоматически создавать рекомендованную страницу рун"
+                                 Margin="0,0,0,8"/>
+
+                <Grid Margin="0,0,0,16">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
@@ -338,22 +356,22 @@
                                           FontSize="14"
                                           FontWeight="SemiBold"/>
                                 
-                                <ui:Button Grid.Column="2"
-                                          Content="✏️"
-                                          Width="32"
-                                          Height="32"
-                                          Margin="4,0"
-                                          Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
-                                          CommandParameter="{Binding}"
-                                          ToolTip="Редактировать"/>
-
-                                <ui:Button Grid.Column="3"
-                                          Content="🗑️"
-                                          Width="32"
-                                          Height="32"
-                                          Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
-                                          CommandParameter="{Binding}"
-                                          ToolTip="Удалить"/>
+                                <StackPanel Grid.Column="2" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <ui:Button Content="✏️"
+                                               Width="32"
+                                               Height="32"
+                                               Margin="4,0"
+                                               Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
+                                               CommandParameter="{Binding}"
+                                               ToolTip="Редактировать"/>
+                                    <ui:Button Content="🗑️"
+                                               Width="32"
+                                               Height="32"
+                                               Margin="4,0"
+                                               Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
+                                               CommandParameter="{Binding}"
+                                               ToolTip="Удалить"/>
+                                </StackPanel>
                             </Grid>
                         </ui:Card>
                     </DataTemplate>

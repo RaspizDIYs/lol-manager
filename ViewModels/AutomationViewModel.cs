@@ -55,6 +55,12 @@ public partial class AutomationViewModel : ObservableObject
     
     private bool _isUpdatingSettings = false;
 
+    [ObservableProperty]
+    private bool isPickDelayEnabled;
+
+    [ObservableProperty]
+    private int pickDelaySeconds;
+
     public AutomationViewModel(ILogger logger, ISettingsService settingsService, DataDragonService dataDragonService, AutoAcceptService autoAcceptService, RuneDataService runeDataService, RiotClientService riotClientService)
     {
         _logger = logger;
@@ -106,6 +112,8 @@ public partial class AutomationViewModel : ObservableObject
             }
             
             if (e.PropertyName == nameof(IsAutomationEnabled) ||
+                e.PropertyName == nameof(IsPickDelayEnabled) ||
+                e.PropertyName == nameof(PickDelaySeconds) ||
                 e.PropertyName == nameof(SelectedChampionToPick) ||
                 e.PropertyName == nameof(SelectedChampionToBan) ||
                 e.PropertyName == nameof(SelectedSummonerSpell1) ||
@@ -201,6 +209,8 @@ public partial class AutomationViewModel : ObservableObject
             var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
             
             IsAutomationEnabled = settings.IsEnabled;
+            IsPickDelayEnabled = settings.IsPickDelayEnabled;
+            PickDelaySeconds = Math.Clamp(settings.PickDelaySeconds, 0, 30);
             SelectedChampionToPick = string.IsNullOrWhiteSpace(settings.ChampionToPick) ? "(Не выбрано)" : settings.ChampionToPick;
             SelectedChampionToBan = string.IsNullOrWhiteSpace(settings.ChampionToBan) ? "(Не выбрано)" : settings.ChampionToBan;
             SelectedSummonerSpell1 = string.IsNullOrWhiteSpace(settings.SummonerSpell1) ? "(Не выбрано)" : settings.SummonerSpell1;
@@ -357,11 +367,21 @@ public partial class AutomationViewModel : ObservableObject
         
         try
         {
+            var pickValue = SelectedChampionToPick == "(Не выбрано)" ? string.Empty : SelectedChampionToPick;
+            var banValue = SelectedChampionToBan == "(Не выбрано)" ? string.Empty : SelectedChampionToBan;
+            if (!string.IsNullOrWhiteSpace(pickValue) && pickValue == banValue)
+            {
+                _logger.Warning($"Одинаковый чемпион в пике и бане ({pickValue}) — сбрасываю бан");
+                banValue = string.Empty;
+            }
+
             var settings = new AutomationSettings
             {
                 IsEnabled = IsAutomationEnabled,
-                ChampionToPick = SelectedChampionToPick == "(Не выбрано)" ? string.Empty : SelectedChampionToPick,
-                ChampionToBan = SelectedChampionToBan == "(Не выбрано)" ? string.Empty : SelectedChampionToBan,
+                IsPickDelayEnabled = IsPickDelayEnabled,
+                PickDelaySeconds = Math.Clamp(PickDelaySeconds, 0, 30),
+                ChampionToPick = pickValue,
+                ChampionToBan = banValue,
                 SummonerSpell1 = SelectedSummonerSpell1 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell1,
                 SummonerSpell2 = SelectedSummonerSpell2 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell2,
                 SelectedRunePageName = SelectedRunePageName == "(Не выбрано)" ? string.Empty : SelectedRunePageName,
@@ -464,10 +484,11 @@ public partial class AutomationViewModel : ObservableObject
         {
             IsLoading = true;
 
-            // Проверяем, запущен ли клиент LoL
-            if (!_riotClientService.IsRiotClientRunning())
+            // Проверяем доступность LCU
+            var lcuAuth = await _riotClientService.GetLcuAuthAsync();
+            if (lcuAuth == null)
             {
-                System.Windows.MessageBox.Show("Клиент League of Legends не запущен. Запустите клиент и попробуйте снова.", "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                System.Windows.MessageBox.Show("LCU недоступен. Откройте клиент League of Legends (в лобби) и попробуйте снова.", "Ошибка", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 return;
             }
 

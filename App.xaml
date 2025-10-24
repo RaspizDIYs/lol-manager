@@ -18,6 +18,7 @@
             <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
             <converters:IndexToVisibilityConverter x:Key="IndexToVisibilityConverter" />
             <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <converters:EnumToBooleanConverter x:Key="EnumToBooleanConverter" />
             <converters:LogTypeConverter x:Key="LogTypeConverter" />
             <converters:MarkdownToFlowDocumentConverter x:Key="MarkdownToFlowDocumentConverter" />
             <converters:SelectedAccountsCountConverter x:Key="SelectedAccountsCountConverter" />

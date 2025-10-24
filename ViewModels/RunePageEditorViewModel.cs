@@ -58,7 +58,6 @@ public partial class RunePageEditorViewModel : ObservableObject
     [ObservableProperty]
     private Rune? _selectedStatMod3;
 
-    public ObservableCollection<Rune> StatMods { get; }
     public ObservableCollection<Rune> StatModsRow1 { get; }
     public ObservableCollection<Rune> StatModsRow2 { get; }
     public ObservableCollection<Rune> StatModsRow3 { get; }
@@ -94,12 +93,10 @@ public partial class RunePageEditorViewModel : ObservableObject
         System.Diagnostics.Debug.WriteLine($"[ViewModel Constructor] Загружено путей: {AllPaths.Count}");
         
         System.Diagnostics.Debug.WriteLine($"[ViewModel Constructor] Загружаем статы...");
-        var statMods = _runeDataService.GetStatMods();
-        StatMods = new ObservableCollection<Rune>(statMods);
-        StatModsRow1 = new ObservableCollection<Rune>(statMods.Take(3));
-        StatModsRow2 = new ObservableCollection<Rune>(new[] { statMods[0], statMods[3], statMods[4] });
-        StatModsRow3 = new ObservableCollection<Rune>(new[] { statMods[3], statMods[4], statMods[5] });
-        System.Diagnostics.Debug.WriteLine($"[ViewModel Constructor] Загружено статов: {StatMods.Count}");
+        StatModsRow1 = new ObservableCollection<Rune>(_runeDataService.GetStatModsRow1());
+        StatModsRow2 = new ObservableCollection<Rune>(_runeDataService.GetStatModsRow2());
+        StatModsRow3 = new ObservableCollection<Rune>(_runeDataService.GetStatModsRow3());
+        System.Diagnostics.Debug.WriteLine($"[ViewModel Constructor] Загружено статов: {StatModsRow1.Count + StatModsRow2.Count + StatModsRow3.Count}");
 
         System.Diagnostics.Debug.WriteLine($"[ViewModel Constructor] Настраиваем обработчик PropertyChanged...");
         PropertyChanged += (s, e) =>
@@ -417,20 +414,7 @@ public partial class RunePageEditorViewModel : ObservableObject
             System.Diagnostics.Debug.WriteLine($"[UpdateSelectedRunes] Сохранена текущая руна слота 3: {SelectedPrimarySlot3.Name}");
         }
         
-        if (SelectedStatMod1 == null)
-        {
-            SelectedStatMod1 = StatModsRow1.FirstOrDefault();
-        }
-        
-        if (SelectedStatMod2 == null)
-        {
-            SelectedStatMod2 = StatModsRow2.FirstOrDefault();
-        }
-        
-        if (SelectedStatMod3 == null)
-        {
-            SelectedStatMod3 = StatModsRow3.FirstOrDefault();
-        }
+        // Больше не автозаполняем осколки — требуем явного выбора
         
         UpdateSecondaryRuneSlots();
     }

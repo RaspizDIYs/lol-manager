@@ -62,6 +62,16 @@ public class FileLogger : ILogger
         {
             var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             var logEntry = FormatLogEntry(timestamp, level, message);
+            try
+            {
+                var fi = new System.IO.FileInfo(_logFile);
+                if (fi.Exists && fi.Length > 10 * 1024 * 1024)
+                {
+                    // Простая ротация: обнулить файл, чтобы не рос бесконечно
+                    System.IO.File.WriteAllText(_logFile, string.Empty, Encoding.UTF8);
+                }
+            }
+            catch { }
             File.AppendAllText(_logFile, logEntry + "\r\n", Encoding.UTF8);
         }
     }
