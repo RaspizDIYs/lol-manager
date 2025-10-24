@@ -8,7 +8,7 @@ namespace LolManager.Services
     public class NotificationService
     {
 
-        public async Task ShowUpdateNotificationAsync(string version, Action? downloadAction = null, Action? dismissAction = null)
+        public async Task ShowUpdateNotificationAsync(string version, Func<Task>? downloadAction = null, Action? dismissAction = null)
         {
             try
             {

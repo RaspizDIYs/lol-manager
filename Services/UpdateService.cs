@@ -16,6 +16,7 @@ public class UpdateService : IUpdateService
     private readonly ISettingsService _settingsService;
     private readonly NotificationService _notificationService;
     private UpdateManager? _updateManager;
+    public string? LatestAvailableVersion { get; private set; }
 
     public string CurrentVersion 
     { 
@@ -112,15 +113,11 @@ public class UpdateService : IUpdateService
     {
         try
         {
+            LatestAvailableVersion = null;
             var checkType = forceCheck ? "manual" : "automatic";
             _logger.Info($"Starting {checkType} update check...");
             
-            var updateManager = GetUpdateManager();
-            if (updateManager == null)
-            {
-                _logger.Error("UpdateManager not available");
-                return false;
-            }
+            // Не используем Velopack/GitHub API для детекта
 
             var settings = _settingsService.LoadUpdateSettings();
             _logger.Info($"Current version: {CurrentVersion}, Channel: {settings.UpdateChannel}");
@@ -143,57 +140,58 @@ public class UpdateService : IUpdateService
             
             _logger.Info($"Checking for updates on {settings.UpdateChannel} channel...");
             
-            // Сначала проверим GitHub релизы напрямую
-            await CheckGitHubReleasesDirectlyAsync(settings.UpdateChannel);
-            
-            try
+            // Проверка без API: через прямые assets/atom
+            // Режим Velopack: используем менеджер, если выбран
+            if (settings.UpdateMode == "Velopack")
             {
-                _logger.Info("Calling Velopack CheckForUpdatesAsync...");
-                
-                var updateInfo = await updateManager.CheckForUpdatesAsync();
-                
-                if (updateInfo != null)
+                var um = GetUpdateManager();
+                if (um != null)
                 {
-                    _logger.Info($"Velopack found update: {updateInfo.TargetFullRelease.Version} ({settings.UpdateChannel})");
-                    _logger.Info($"Target package: {updateInfo.TargetFullRelease.PackageId}");
+                    try
+                    {
+                        var info = await um.CheckForUpdatesAsync();
+                        if (info != null)
+                        {
+                            LatestAvailableVersion = info.TargetFullRelease?.Version?.ToString();
+                            return true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Velopack check failed, fallback to direct: {ex.Message}");
+                    }
+                }
+            }
+
+            if (settings.UpdateChannel == "stable")
+            {
+                var stableTag = await TryGetLatestStableFromAtomAsync();
+                if (!string.IsNullOrEmpty(stableTag) && IsStableTagNewerThanCurrentBase(stableTag!))
+                {
+                    LatestAvailableVersion = stableTag;
+                    _logger.Info($"Found newer (stable via atom): {stableTag}");
                     return true;
                 }
-                else
-                {
-                    _logger.Warning("Velopack CheckForUpdatesAsync returned null - no updates found or error accessing RELEASES file");
-                    _logger.Warning("This usually means RELEASES file is missing, corrupted, or doesn't contain newer version info");
-                }
             }
-            catch (Exception veloEx)
+            else // beta
             {
-                _logger.Error($"Velopack CheckForUpdatesAsync failed: {veloEx.GetType().Name} - {veloEx.Message}");
-                
-                // Проверяем специфичные типы ошибок Velopack
-                if (veloEx.Message.Contains("404") || veloEx.Message.Contains("Not Found"))
+                var latestBetaTag = await TryGetLatestBetaFromAtomAsync();
+                if (!string.IsNullOrEmpty(latestBetaTag))
                 {
-                    _logger.Error("HTTP 404 - RELEASES file not found in GitHub release assets");
+                    if (IsTagNewerThanCurrentForBeta(latestBetaTag!))
+                    {
+                        LatestAvailableVersion = latestBetaTag;
+                        _logger.Info($"Found newer (beta via atom): {latestBetaTag}");
+                        return true;
+                    }
+                    _logger.Info($"Beta (via atom) not newer than current: {latestBetaTag} vs {CurrentVersion}");
                 }
-                else if (veloEx.Message.Contains("403") || veloEx.Message.Contains("Forbidden"))
-                {
-                    _logger.Error("HTTP 403 - Access denied to GitHub repository or rate limited");
-                }
-                else if (veloEx.Message.Contains("ssl") || veloEx.Message.Contains("certificate"))
-                {
-                    _logger.Error("SSL/Certificate error accessing GitHub");
-                }
-                
-                _logger.Debug($"Velopack exception stack trace: {veloEx.StackTrace}");
             }
             
-            _logger.Info("No updates available via Velopack, trying direct GitHub check...");
+            // Диагностический метод выключен по умолчанию
+            // await CheckGitHubReleasesDirectlyAsync(settings.UpdateChannel);
             
-            // Если Velopack не нашел обновления, проверим напрямую через GitHub API
-            var hasDirectUpdate = await CheckForUpdatesViaGitHubAPIAsync(settings.UpdateChannel);
-            if (hasDirectUpdate)
-            {
-                _logger.Info("Updates available via direct GitHub API check");
-                return true;
-            }
+            _logger.Info("No updates available via direct atom");
             
             _logger.Info("No updates available via any method");
             return false;
@@ -214,76 +212,78 @@ public class UpdateService : IUpdateService
             BackupUserData();
             _logger.Info("Starting update process...");
             
-            var updateManager = GetUpdateManager();
-            if (updateManager == null)
-            {
-                _logger.Error("UpdateManager not available");
-                return false;
-            }
+            var settings = _settingsService.LoadUpdateSettings();
 
-            _logger.Info("Calling Velopack CheckForUpdatesAsync for update process...");
-            
-            var updateInfo = await updateManager.CheckForUpdatesAsync();
-            if (updateInfo == null)
+            // Если выбран Velopack — попытка обновиться через него
+            if (settings.UpdateMode == "Velopack")
             {
-                _logger.Info("Velopack CheckForUpdatesAsync returned null in UpdateAsync - no updates available");
-                
-                // Если Velopack не нашел обновления, но мы знаем что они есть через GitHub API
-                var settings = _settingsService.LoadUpdateSettings();
-                var hasDirectUpdate = await CheckForUpdatesViaGitHubAPIAsync(settings.UpdateChannel);
-                if (hasDirectUpdate)
+                var um = GetUpdateManager();
+                if (um != null)
                 {
-                    _logger.Info("Updates available via GitHub, but Velopack update files missing. Opening GitHub releases page...");
-                    
                     try
                     {
-                        var githubUrl = "https://github.com/RaspizDIYs/lol-manager/releases";
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        var info = await um.CheckForUpdatesAsync();
+                        if (info != null)
                         {
-                            FileName = githubUrl,
-                            UseShellExecute = true
-                        });
-                        _logger.Info($"Opened GitHub releases page: {githubUrl}");
+                            await um.DownloadUpdatesAsync(info);
+                            RegisterDataValidationAfterUpdate();
+                            um.ApplyUpdatesAndRestart(info.TargetFullRelease);
+                            return true;
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.Error($"Failed to open GitHub releases page: {ex.Message}");
+                        _logger.Warning($"Velopack update failed, fallback to direct: {ex.Message}");
                     }
                 }
-                
-                return false;
             }
 
-            _logger.Info($"Velopack found update in UpdateAsync: {updateInfo.TargetFullRelease.Version}");
-            _logger.Info($"Update package info - ID: {updateInfo.TargetFullRelease.PackageId}");
-            _logger.Info($"Downloading update: {updateInfo.TargetFullRelease.Version}");
-            await updateManager.DownloadUpdatesAsync(updateInfo);
-            
-            _logger.Info("Update downloaded, applying and restarting...");
-            
-            // Создаем аргументы для ApplyUpdatesAndRestart для сохранения пользовательских данных
-            var extraArgs = new List<string>();
-            
-            // Защита от удаления пользовательских данных в AppData
-            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var roamingLolManagerDir = Path.Combine(appDataPath, "LolManager");
-            extraArgs.Add($"--keepalive={roamingLolManagerDir}");
-            _logger.Info($"Added protection for user data directory: {roamingLolManagerDir}");
-            
-            // Защита от удаления пользовательских данных в LocalAppData
-            var localAppDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var localLolManagerDir = Path.Combine(localAppDataPath, "LolManager");
-            extraArgs.Add($"--keepalive={localLolManagerDir}");
-            _logger.Info($"Added protection for settings directory: {localLolManagerDir}");
-            
-            // Применяем обновление. При необходимости даунгрейда (когда версия ниже) Velopack применит полный пакет.
-            // Запускаем проверку пользовательских данных после перезапуска приложения
-            RegisterDataValidationAfterUpdate();
-            
-            // Применяем обновление и перезапускаем приложение
-            updateManager.ApplyUpdatesAndRestart(updateInfo.TargetFullRelease);
-            
-            return true;
+            // Полный отказ от Velopack для скачивания: качаем установщик напрямую
+            var latestStableTag = await TryGetLatestStableFromAtomAsync();
+            if (string.IsNullOrEmpty(latestStableTag))
+            {
+                if (settings.UpdateChannel == "beta")
+                {
+                    var betaTag = await TryGetLatestBetaFromAtomAsync();
+                    if (IsTagNewerThanCurrentForBeta(betaTag))
+                    {
+                        // для beta открываем страницу релизов
+                        _ = OpenReleasesPage();
+                        return true;
+                    }
+                }
+                _logger.Info("No update available via assets/atom");
+                return false;
+            }
+            if (IsStableTagNewerThanCurrentBase(latestStableTag!))
+            {
+                // Скачиваем инсталлятор напрямую и запускаем
+                var ok = await DownloadAndRunStableInstallerAsync();
+                if (ok)
+                {
+                    RegisterDataValidationAfterUpdate();
+                    return true;
+                }
+            }
+            else if (_settingsService.LoadUpdateSettings().UpdateChannel == "beta")
+            {
+                var betaTag = await TryGetLatestBetaFromAtomAsync();
+                if (IsTagNewerThanCurrentForBeta(betaTag))
+                {
+                    var ok = await DownloadAndRunBetaInstallerAsync(betaTag!);
+                    if (ok)
+                    {
+                        RegisterDataValidationAfterUpdate();
+                        return true;
+                    }
+                    else
+                    {
+                        _ = OpenReleasesPage();
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
         catch (Exception ex)
         {
@@ -418,45 +418,49 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            const string repoOwner = "RaspizDIYs";
-            const string repoName = "lol-manager";
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("User-Agent", "LolManager-Installer");
-            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            var response = await http.GetStringAsync(url);
-            var releases = JsonDocument.Parse(response);
-            foreach (var release in releases.RootElement.EnumerateArray())
+            var latestSetupUrl = "https://github.com/RaspizDIYs/lol-manager/releases/latest/download/LolManager-stable-Setup.exe";
+            var tempPath = Path.Combine(Path.GetTempPath(), "LolManager-stable-Setup.exe");
+            _logger.Info($"Downloading installer: {latestSetupUrl}");
+            var data = await HttpGetBytesWithRetry(latestSetupUrl, TimeSpan.FromMinutes(2));
+            await File.WriteAllBytesAsync(tempPath, data);
+            _logger.Info($"Installer saved: {tempPath}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                var isDraft = release.GetProperty("draft").GetBoolean();
-                if (isDraft || isPrerelease) continue;
-                foreach (var asset in release.GetProperty("assets").EnumerateArray())
-                {
-                    var name = asset.GetProperty("name").GetString() ?? "";
-                    if (!name.EndsWith("-Setup.exe", StringComparison.OrdinalIgnoreCase)) continue;
-                    var downloadUrl = asset.GetProperty("browser_download_url").GetString();
-                    if (string.IsNullOrEmpty(downloadUrl)) continue;
-
-                    var tempPath = Path.Combine(Path.GetTempPath(), name);
-                    _logger.Info($"Downloading stable installer: {name}");
-                    var data = await http.GetByteArrayAsync(downloadUrl);
-                    await File.WriteAllBytesAsync(tempPath, data);
-                    _logger.Info($"Installer saved: {tempPath}");
-
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = tempPath,
-                        UseShellExecute = true
-                    });
-                    return true;
-                }
-            }
+                FileName = tempPath,
+                UseShellExecute = true
+            });
+            return true;
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to download/run stable installer: {ex.Message}");
         }
         return false;
+    }
+
+    private async Task<bool> DownloadAndRunBetaInstallerAsync(string tag)
+    {
+        try
+        {
+            var normalizedTag = tag.StartsWith("v") ? tag : $"v{tag}";
+            var latestSetupUrl = $"https://github.com/RaspizDIYs/lol-manager/releases/download/{normalizedTag}/LolManager-beta-Setup.exe";
+            var tempPath = Path.Combine(Path.GetTempPath(), "LolManager-beta-Setup.exe");
+            _logger.Info($"Downloading beta installer: {latestSetupUrl}");
+            var data = await HttpGetBytesWithRetry(latestSetupUrl, TimeSpan.FromMinutes(2));
+            await File.WriteAllBytesAsync(tempPath, data);
+            _logger.Info($"Installer saved: {tempPath}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = tempPath,
+                UseShellExecute = true
+            });
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to download/run beta installer: {ex.Message}");
+            return false;
+        }
     }
 
 
@@ -471,31 +475,18 @@ public class UpdateService : IUpdateService
             var settings = _settingsService.LoadUpdateSettings();
             
             // Сначала пытаемся получить changelog из GitHub API с фильтрацией по каналу
-            var githubChangelog = await GetGitHubChangelogAsync(settings.UpdateChannel);
-            if (!string.IsNullOrEmpty(githubChangelog))
+            var atomChangelog = await GetChangelogFromAtomAsync(settings.UpdateChannel);
+            if (!string.IsNullOrEmpty(atomChangelog))
             {
-                _logger.Info($"Got GitHub changelog, length: {githubChangelog.Length}");
-                return githubChangelog;
+                _logger.Info($"Got Atom changelog, length: {atomChangelog.Length}");
+                return atomChangelog;
             }
             
             _logger.Warning("GitHub changelog is empty, trying Velopack...");
 
-            // Если не удалось - пытаемся через Velopack
-            var updateManager = GetUpdateManager();
-            if (updateManager != null)
-            {
-                var updateInfo = await updateManager.CheckForUpdatesAsync();
-                if (updateInfo?.TargetFullRelease != null)
-                {
-                    var releaseNotes = $"## Обновление до версии {updateInfo.TargetFullRelease.Version}\n\n" +
-                                       $"**Пакет:** {updateInfo.TargetFullRelease.PackageId}\n\n" +
-                                       "Подробную информацию об изменениях можно найти в GitHub Releases.";
-                    _logger.Info("Using Velopack release notes");
-                    return releaseNotes;
-                }
-            }
-            
-            _logger.Info("Using default changelog");
+            // No-API changelog через Atom
+            var md = await GetChangelogFromAtomAsync(settings.UpdateChannel);
+            if (!string.IsNullOrWhiteSpace(md)) return md;
             return GetDefaultChangelog();
         }
         catch (Exception ex)
@@ -506,147 +497,12 @@ public class UpdateService : IUpdateService
         }
     }
 
-    private async Task<string> GetGitHubChangelogAsync(string channel)
-    {
-        try
-        {
-            const string repoOwner = "RaspizDIYs";
-            const string repoName = "lol-manager";
-            
-            _logger.Info($"Fetching changelog for channel: {channel}");
-            
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager");
-            
-            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            var response = await httpClient.GetStringAsync(url);
-            
-            var releases = System.Text.Json.JsonDocument.Parse(response);
-            var changelog = new StringBuilder();
-            var includedReleases = 0;
-            
-            foreach (var release in releases.RootElement.EnumerateArray())
-            {
-                if (includedReleases >= 10) break; // Берем максимум 10 релизов
-                
-                var tagName = release.GetProperty("tag_name").GetString() ?? "Unknown";
-                var name = release.GetProperty("name").GetString() ?? "";
-                var body = release.GetProperty("body").GetString() ?? "Нет описания";
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                var isDraft = release.GetProperty("draft").GetBoolean();
-                
-                // Пропускаем черновики
-                if (isDraft) continue;
-                
-                // Фильтруем по каналу
-                if (channel == "stable" && isPrerelease) continue; // Stable канал - только стабильные релизы
-                // Beta канал - показываем все релизы (и stable, и prerelease)
-                
-                var releaseType = isPrerelease ? " (Beta)" : "";
-                
-                // Форматируем как "версия - название"
-                var title = string.IsNullOrEmpty(name) ? tagName : $"{tagName} - {name}";
-                
-                changelog.AppendLine($"## {title}{releaseType}");
-                changelog.AppendLine(body);
-                changelog.AppendLine();
-                
-                includedReleases++;
-            }
-            
-            _logger.Info($"Generated changelog with {includedReleases} releases for channel '{channel}'");
-            return changelog.ToString();
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to fetch GitHub changelog: {ex.Message}");
-            return string.Empty;
-        }
-    }
+    // API changelog removed; using Atom instead (see GetChangelogFromAtomAsync)
 
     private async Task CheckGitHubReleasesDirectlyAsync(string channel)
     {
-        try
-        {
-            _logger.Info("Checking GitHub releases directly for debugging...");
-            
-            const string repoOwner = "RaspizDIYs";
-            const string repoName = "lol-manager";
-            
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
-            
-            var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
-            _logger.Info($"Checking GitHub API: {url}");
-            
-            var response = await httpClient.GetStringAsync(url);
-            var releases = System.Text.Json.JsonDocument.Parse(response);
-            
-            _logger.Info($"Found {releases.RootElement.GetArrayLength()} releases in GitHub");
-            
-            // Диагностика наличия Velopack артефактов (RELEASES, full/delta nupkg) и канал-специфичных JSON
-            await CheckVelopackArtifactsAsync(httpClient, repoOwner, repoName, releases, channel);
-            
-            int count = 0;
-            foreach (var release in releases.RootElement.EnumerateArray().Take(5))
-            {
-                var tagName = release.GetProperty("tag_name").GetString() ?? "Unknown";
-                var name = release.GetProperty("name").GetString() ?? "";
-                var isPrerelease = release.GetProperty("prerelease").GetBoolean();
-                var isDraft = release.GetProperty("draft").GetBoolean();
-                
-                var assets = release.GetProperty("assets");
-                var assetCount = assets.GetArrayLength();
-                var assetNames = new List<string>();
-                
-                foreach (var asset in assets.EnumerateArray())
-                {
-                    var assetName = asset.GetProperty("name").GetString() ?? "";
-                    assetNames.Add(assetName);
-                }
-                
-                var releaseType = isPrerelease ? "prerelease" : "stable";
-                var status = isDraft ? "DRAFT" : "PUBLIC";
-                
-                _logger.Info($"Release #{++count}: {tagName} ({releaseType}, {status}) - {assetCount} assets");
-                _logger.Info($"  Assets: {string.Join(", ", assetNames)}");
-                
-                // Проверяем есть ли Velopack файлы
-                var releaseFile = assetNames.FirstOrDefault(name => name.Equals("RELEASES", StringComparison.OrdinalIgnoreCase));
-                var nupkgFiles = assetNames.Where(name => name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)).ToList();
-                
-                // Ищем full .nupkg файл который соответствует версии релиза
-                var versionString = tagName.StartsWith("v") ? tagName.Substring(1) : tagName;
-                var fullNupkg = assetNames.FirstOrDefault(name => 
-                    name.Contains("full") && 
-                    name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase) &&
-                    name.Contains(versionString));
-                
-                // Если не найден точный, берем любой full
-                if (fullNupkg == null)
-                {
-                    fullNupkg = assetNames.FirstOrDefault(name => name.Contains("full") && name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase));
-                }
-                
-                var deltaFiles = assetNames.Where(name => name.Contains("delta") && name.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)).ToList();
-                
-                _logger.Info($"  RELEASES file: {releaseFile ?? "NOT FOUND"}");
-                _logger.Info($"  Full .nupkg: {fullNupkg ?? "NOT FOUND"}");
-                _logger.Info($"  Delta files: {deltaFiles.Count} found");
-                _logger.Info($"  Total .nupkg files: {nupkgFiles.Count}");
-                
-                var hasVelopackFiles = releaseFile != null && fullNupkg != null;
-                _logger.Info($"  Velopack compatible: {hasVelopackFiles}");
-                
-                // Проверяем подходит ли под текущий канал
-                var matchesChannel = channel == "beta" || !isPrerelease;
-                _logger.Info($"  Matches channel '{channel}': {matchesChannel}");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"Failed to check GitHub releases directly: {ex.Message}");
-        }
+        // Диагностика через API удалена в no-API режиме
+        await Task.CompletedTask;
     }
 
     private async Task CheckVelopackArtifactsAsync(HttpClient httpClient, string repoOwner, string repoName, JsonDocument releases, string channel)
@@ -732,6 +588,20 @@ public class UpdateService : IUpdateService
             using var httpClient = new HttpClient();
             httpClient.Timeout = TimeSpan.FromSeconds(30); // Таймаут 30 секунд
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+            try
+            {
+                var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    var st = _settingsService.LoadUpdateSettings();
+                    if (!string.IsNullOrWhiteSpace(st.GithubToken)) token = st.GithubToken;
+                }
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("token", token);
+                }
+            }
+            catch { }
             
             var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
             _logger.Info($"Making request to: {url}");
@@ -921,6 +791,7 @@ public class UpdateService : IUpdateService
                         if (isNewerVersion)
                         {
                             _logger.Info($"Found newer version: {releaseVersion} > {currentVersion} (channel: {channel})");
+                            LatestAvailableVersion = tagName; // показываем как на GitHub
                             return true;
                         }
                     }
@@ -977,6 +848,121 @@ public class UpdateService : IUpdateService
             return true;
         }
         
+        return false;
+    }
+
+    private static Version? ParseVersionFromReleasesLine(string line)
+    {
+        // Формат строки RELEASES: SHA1 SIZE FILENAME.nupkg
+        // Имя файла содержит версию, например LolManager-0.2.4-full.nupkg
+        try
+        {
+            if (string.IsNullOrWhiteSpace(line)) return null;
+            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) return null;
+            var fileName = parts[2];
+            var name = Path.GetFileNameWithoutExtension(fileName);
+            // ищем подстроку с версией после последнего '-'
+            var lastDash = name.LastIndexOf('-');
+            if (lastDash < 0) return null;
+            var after = name.Substring(lastDash + 1); // может быть 0.2.4-full
+            var versionPart = after.Split('-', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            if (string.IsNullOrWhiteSpace(versionPart)) return null;
+            if (Version.TryParse(versionPart, out var v)) return v;
+        }
+        catch { }
+        return null;
+    }
+
+    // Стабильная версия из Atom (так как RELEASES не публикуется)
+    private async Task<string?> TryGetLatestStableFromAtomAsync()
+    {
+        try
+        {
+            var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
+            var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
+            var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
+                .Where(t => !t.Contains("Releases ·", StringComparison.OrdinalIgnoreCase))
+                .Where(t => !t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            return titles.FirstOrDefault()?.Trim();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed to parse stable from atom: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<string?> TryGetLatestBetaFromAtomAsync()
+    {
+        try
+        {
+            var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
+            var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
+            // простой парсинг: ищем <title>vX.Y.Z-beta.N</title>
+            var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
+                .Where(t => t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            // первый заголовок после общего заголовка канала — обычно последний релиз
+            foreach (var t in titles)
+            {
+                // отбрасываем общий title канала Releases · owner/repo
+                if (t.Contains("Releases ·", StringComparison.OrdinalIgnoreCase)) continue;
+                // возвращаем первый beta-тег
+                return t.Trim();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed to parse releases.atom: {ex.Message}");
+            return null;
+        }
+    }
+
+    private bool IsStableTagNewerThanCurrentBase(string tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag)) return false;
+        var versionStr = tag.StartsWith("v") ? tag.Substring(1) : tag;
+        var currentBaseStr = CurrentVersion.Contains("-beta.") ? CurrentVersion.Split("-beta.")[0] : CurrentVersion;
+        if (Version.TryParse(versionStr, out var rel) && Version.TryParse(currentBaseStr, out var cur))
+            return rel > cur;
+        return false;
+    }
+
+    private bool IsTagNewerThanCurrentForBeta(string? tag)
+    {
+        if (string.IsNullOrWhiteSpace(tag)) return false;
+        var versionString = tag.StartsWith("v") ? tag.Substring(1) : tag;
+        var isPrerelease = versionString.Contains("-beta.");
+        var current = CurrentVersion;
+        var currentBase = current.Contains("-beta.") ? current.Split("-beta.")[0] : current;
+        if (isPrerelease && versionString.Contains("-beta."))
+        {
+            var parts = versionString.Split("-beta.");
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var betaNum))
+            {
+                if (parts[0] == currentBase)
+                {
+                    // сравнение номера беты
+                    var curBeta = 0;
+                    if (current.Contains("-beta.") && int.TryParse(current.Split("-beta.")[1], out var cb)) curBeta = cb;
+                    return betaNum > curBeta;
+                }
+                // более новая базовая версия в бете
+                if (Version.TryParse(parts[0], out var baseVer) && Version.TryParse(currentBase, out var curBase))
+                    return baseVer > curBase;
+            }
+        }
+        else
+        {
+            // стаб тэг новее — тоже считаем апдейтом для beta канала
+            if (Version.TryParse(versionString, out var stableVer) && Version.TryParse(currentBase, out var curBase))
+                return stableVer > curBase;
+        }
         return false;
     }
 
@@ -1174,7 +1160,7 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            await _notificationService.ShowUpdateNotificationAsync(version, 
+            await _notificationService.ShowUpdateNotificationAsync(version,
                 downloadAction: async () => await UpdateAsync(),
                 dismissAction: () => _logger.Info("Update notification dismissed"));
         }
@@ -1182,6 +1168,130 @@ public class UpdateService : IUpdateService
         {
             _logger.Error($"Failed to show update notification: {ex.Message}");
         }
+    }
+
+    public void CleanupInstallerCache()
+    {
+        try
+        {
+            var temp = Path.GetTempPath();
+            foreach (var name in new[] { "LolManager-stable-Setup.exe", "LolManager-beta-Setup.exe" })
+            {
+                var path = Path.Combine(temp, name);
+                if (File.Exists(path))
+                {
+                    try { File.Delete(path); _logger.Info($"Deleted cached installer: {path}"); } catch { }
+                }
+            }
+        }
+        catch { }
+    }
+
+    private async Task OpenReleasesPage()
+    {
+        try
+        {
+            var tag = LatestAvailableVersion?.Trim();
+            var url = !string.IsNullOrEmpty(tag)
+                ? $"https://github.com/RaspizDIYs/lol-manager/releases/tag/{tag}"
+                : "https://github.com/RaspizDIYs/lol-manager/releases";
+            _logger.Info($"Opening releases page: {url}");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to open releases page: {ex.Message}");
+        }
+    }
+
+    private async Task<string?> GetChangelogFromAtomAsync(string channel)
+    {
+        try
+        {
+            var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
+            var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
+
+            // Простой парсинг: ищем <title>vX.Y.Z-beta.N</title>
+            var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
+                .Where(t => t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Первый заголовок после общего заголовка канала — обычно последний релиз
+            foreach (var t in titles)
+            {
+                // Отбрасываем общий title канала Releases · owner/repo
+                if (t.Contains("Releases ·", StringComparison.OrdinalIgnoreCase)) continue;
+                // Возвращаем первый beta-тег
+                return t.Trim();
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"Failed to parse releases.atom: {ex.Message}");
+            return null;
+        }
+    }
+
+    private string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return string.Empty;
+        return System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", string.Empty);
+    }
+
+    private async Task<string> HttpGetStringWithRetry(string url, TimeSpan timeout, int maxAttempts = 3)
+    {
+        Exception? last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(timeout);
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+                var resp = await http.GetAsync(url, cts.Token);
+                resp.EnsureSuccessStatusCode();
+                return await resp.Content.ReadAsStringAsync(cts.Token);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                var delay = TimeSpan.FromSeconds(Math.Min(10, Math.Pow(2, attempt)));
+                _logger.Warning($"GET failed ({attempt}/{maxAttempts}) for {url}: {ex.Message}. Retry in {delay.TotalSeconds}s");
+                await Task.Delay(delay);
+            }
+        }
+        throw new HttpRequestException($"Failed to GET {url} after {maxAttempts} attempts", last);
+    }
+
+    private async Task<byte[]> HttpGetBytesWithRetry(string url, TimeSpan timeout, int maxAttempts = 3)
+    {
+        Exception? last = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            try
+            {
+                using var cts = new CancellationTokenSource(timeout);
+                using var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+                var resp = await http.GetAsync(url, cts.Token);
+                resp.EnsureSuccessStatusCode();
+                return await resp.Content.ReadAsByteArrayAsync(cts.Token);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                var delay = TimeSpan.FromSeconds(Math.Min(20, Math.Pow(2, attempt)));
+                _logger.Warning($"GET bytes failed ({attempt}/{maxAttempts}) for {url}: {ex.Message}. Retry in {delay.TotalSeconds}s");
+                await Task.Delay(delay);
+            }
+        }
+        throw new HttpRequestException($"Failed to GET bytes {url} after {maxAttempts} attempts", last);
     }
 }
 

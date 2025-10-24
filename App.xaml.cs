@@ -138,6 +138,14 @@ public partial class App : Application
         
         // Автоматическая проверка обновлений при запуске (без ожидания)
         _ = CheckForUpdatesOnStartupAsync();
+
+        // Восстановление данных после обновления (если есть флаг)
+        try
+        {
+            GetService<IUpdateService>().ValidateUserDataAfterUpdate();
+            GetService<IUpdateService>().CleanupInstallerCache();
+        }
+        catch { }
         
         try
         {
@@ -171,6 +179,7 @@ public partial class App : Application
         var dataDragonService = new DataDragonService(logger);
         var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService, settingsService);
         var runeDataService = new RuneDataService();
+        var updateService = new UpdateService(logger, settingsService);
         
         _services[typeof(ILogger)] = logger;
         _services[typeof(ISettingsService)] = settingsService;
@@ -178,6 +187,7 @@ public partial class App : Application
         _services[typeof(DataDragonService)] = dataDragonService;
         _services[typeof(AutoAcceptService)] = autoAcceptService;
         _services[typeof(RuneDataService)] = runeDataService;
+        _services[typeof(IUpdateService)] = updateService;
     }
 
     public T GetService<T>() where T : class
@@ -276,8 +286,21 @@ public partial class App : Application
             
             _logger?.Info("[APP] 🔄 Автоматическая проверка обновлений при запуске...");
             
-            var settingsService = GetService<ISettingsService>();
-            var updateService = new UpdateService(_logger!, settingsService);
+            var updateService = GetService<IUpdateService>();
+
+            // Соблюдаем интервал проверки, если автообновления включены
+            var settings = GetService<ISettingsService>().LoadUpdateSettings();
+            if (!settings.AutoUpdateEnabled)
+            {
+                _logger?.Info("[APP] Автообновления выключены — пропускаем автоматическую проверку");
+                return;
+            }
+            var nextAllowed = settings.LastCheckTime.AddHours(Math.Max(1, settings.CheckIntervalHours));
+            if (DateTime.UtcNow < nextAllowed)
+            {
+                _logger?.Info($"[APP] Рано проверять (до {nextAllowed:u}), пропускаем");
+                return;
+            }
             
             var hasUpdates = await updateService.CheckForUpdatesAsync(forceCheck: false);
             
@@ -290,7 +313,8 @@ public partial class App : Application
                 {
                     if (MainWindow is Views.MainWindow mainWin)
                     {
-                        mainWin.ShowUpdateNotification(updateService.CurrentVersion, async () =>
+                        var versionToShow = updateService.LatestAvailableVersion ?? updateService.CurrentVersion;
+                        mainWin.ShowUpdateNotification(versionToShow, async () =>
                         {
                             await updateService.UpdateAsync();
                         });

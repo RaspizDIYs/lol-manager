@@ -11,6 +11,8 @@ public class UpdateSettings : INotifyPropertyChanged
     private DateTime _lastCheckTime = DateTime.MinValue;
     private bool _skipVersion = false;
     private string _skippedVersion = string.Empty;
+    private string _githubToken = string.Empty;
+    private string _updateMode = "Direct"; // Direct | Velopack
 
     public bool AutoUpdateEnabled
     {
@@ -46,6 +48,18 @@ public class UpdateSettings : INotifyPropertyChanged
     {
         get => _skippedVersion;
         set => SetProperty(ref _skippedVersion, value);
+    }
+
+    public string GithubToken
+    {
+        get => _githubToken;
+        set => SetProperty(ref _githubToken, value ?? string.Empty);
+    }
+
+    public string UpdateMode
+    {
+        get => _updateMode;
+        set => SetProperty(ref _updateMode, value ?? "Direct");
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

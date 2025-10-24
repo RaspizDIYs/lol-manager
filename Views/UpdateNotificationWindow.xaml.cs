@@ -11,10 +11,10 @@ namespace LolManager.Views
         [ObservableProperty]
         private string _version = string.Empty;
         
-        private readonly Action? _downloadAction;
+        private readonly Func<Task>? _downloadAction;
         private readonly Action? _dismissAction;
 
-        public UpdateNotificationWindow(string version, Action? downloadAction = null, Action? dismissAction = null)
+        public UpdateNotificationWindow(string version, Func<Task>? downloadAction = null, Action? dismissAction = null)
         {
             _version = version;
             _downloadAction = downloadAction;
@@ -41,11 +41,14 @@ namespace LolManager.Views
         }
 
         [RelayCommand]
-        private void Download()
+        private async Task Download()
         {
             try
             {
-                _downloadAction?.Invoke();
+                if (_downloadAction != null)
+                {
+                    await _downloadAction.Invoke();
+                }
                 Close();
             }
             catch (Exception ex)

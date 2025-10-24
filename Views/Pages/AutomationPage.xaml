@@ -276,9 +276,11 @@
                            FontWeight="SemiBold" 
                            Margin="0,16,0,8"/>
             
-                <ui:ToggleSwitch IsChecked="{Binding AutoRuneGenerationEnabled, Mode=TwoWay}" 
-                                 Content="Автоматически создавать рекомендованную страницу рун"
-                                 Margin="0,0,0,8"/>
+                <!-- Скрыто до релиза фичи автогенерации рун -->
+                <ui:ToggleSwitch IsEnabled="False" IsChecked="False"
+                                 Content="Автоматически создавать рекомендованную страницу рун (скоро)"
+                                 Margin="0,0,0,8"
+                                 Visibility="Collapsed"/>
 
                 <Grid Margin="0,0,0,16">
                 <Grid.ColumnDefinitions>

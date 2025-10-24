@@ -355,7 +355,16 @@ public class AutoAcceptService
         
         while (ws.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
         {
-            var result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+            WebSocketReceiveResult result;
+            try
+            {
+                result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.Info("WebSocket receive cancelled (expected) - shutting down listener");
+                break;
+            }
             
             if (result.MessageType == WebSocketMessageType.Close)
                 break;
@@ -769,7 +778,7 @@ public class AutoAcceptService
             var championName = _automationSettings?.ChampionToPick;
             bool runesApplied = false;
 
-            if (_automationSettings?.AutoRuneGenerationEnabled == true && !string.IsNullOrWhiteSpace(championName))
+            if (false && _automationSettings?.AutoRuneGenerationEnabled == true && !string.IsNullOrWhiteSpace(championName))
             {
                 var championId = await GetChampionIdByNameAsync(championName);
                 if (championId > 0)

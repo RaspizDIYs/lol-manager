@@ -97,6 +97,9 @@ public partial class MainViewModel : ObservableObject
 	private List<string> updateChannels = new() { "stable", "beta" };
 
 	[ObservableProperty]
+	private List<string> updateModes = new() { "Direct", "Velopack" };
+
+	[ObservableProperty]
 	private SystemInfo systemInfo = new();
 
 	[ObservableProperty]
@@ -341,9 +344,9 @@ public partial class MainViewModel : ObservableObject
 		// Подписываемся на изменения канала обновлений
 		if (UpdateSettings != null)
 		{
-			UpdateSettings.PropertyChanged += (s, e) =>
+            UpdateSettings.PropertyChanged += (s, e) =>
 			{
-				if (e.PropertyName == nameof(UpdateSettings.UpdateChannel))
+                if (e.PropertyName == nameof(UpdateSettings.UpdateChannel))
 				{
 					try
 					{
@@ -384,7 +387,19 @@ public partial class MainViewModel : ObservableObject
 					{
 						_logger.Error($"Failed to refresh update source: {ex.Message}");
 					}
-				}
+                }
+                else if (e.PropertyName == nameof(UpdateSettings.UpdateMode))
+                {
+                    try
+                    {
+                        _settingsService.SaveUpdateSettings(UpdateSettings);
+                        _logger.Info($"Update mode saved: {UpdateSettings.UpdateMode}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"Failed to save update mode: {ex.Message}");
+                    }
+                }
 			};
 		}
 		

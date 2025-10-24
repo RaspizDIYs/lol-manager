@@ -18,8 +18,10 @@ public class RuneImageConverter : IValueConverter
             bitmap.BeginInit();
             bitmap.UriSource = new Uri(url, UriKind.Absolute);
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreColorProfile;
             bitmap.EndInit();
-            bitmap.Freeze();
+            if (bitmap.CanFreeze)
+                bitmap.Freeze();
             
             return bitmap;
         }

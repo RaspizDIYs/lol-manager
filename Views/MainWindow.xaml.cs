@@ -255,7 +255,7 @@ public partial class MainWindow : FluentWindow
     
 
     
-    public void ShowUpdateNotification(string version, Action downloadAction)
+    public void ShowUpdateNotification(string version, Func<Task> downloadAction)
     {
         Dispatcher.Invoke(() =>
         {
@@ -324,11 +324,14 @@ public partial class MainWindow : FluentWindow
                 NotificationContainer.IsHitTestVisible = false;
             };
             
-            downloadBtn.Click += (s, args) => 
+            downloadBtn.Click += async (s, args) => 
             {
                 NotificationContainer.Child = null;
                 NotificationContainer.IsHitTestVisible = false;
-                downloadAction?.Invoke();
+                if (downloadAction != null)
+                {
+                    try { await downloadAction.Invoke(); } catch { }
+                }
             };
             
             toast.Opacity = 0;
