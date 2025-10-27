@@ -45,181 +45,43 @@
                 </StackPanel>
             </Border>
             
-            <!-- Информация о команде (5 карточек) -->
-            <StackPanel x:Name="TeamInfoPanel" 
-                       Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}"
-                       Margin="0,0,0,20">
-                
-                <!-- Игрок 1 -->
-                <ui:Card Margin="0,0,0,10" Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding TeamPlayers[0].Name}" 
-                                      FontSize="15" 
-                                      FontWeight="SemiBold" 
-                                      Margin="0,0,0,4"/>
-                            
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="{Binding TeamPlayers[0].FullRank}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                <TextBlock Text="{Binding TeamPlayers[0].WinRate}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text="{Binding TeamPlayers[0].Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding TeamPlayers[0].Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <ui:Button Grid.Column="1"
-                                  Content="U.GG"
-                                  Appearance="Secondary"
-                                  Command="{Binding OpenUggCommand}"
-                                  CommandParameter="{Binding TeamPlayers[0].UggLink}"
-                                  Width="60"
-                                  Height="28"
-                                  FontSize="12"/>
-                    </Grid>
-                </ui:Card>
-                
-                <!-- Игрок 2 -->
-                <ui:Card Margin="0,0,0,10" Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding TeamPlayers[1].Name}" 
-                                      FontSize="15" 
-                                      FontWeight="SemiBold" 
-                                      Margin="0,0,0,4"/>
-                            
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="{Binding TeamPlayers[1].FullRank}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                <TextBlock Text="{Binding TeamPlayers[1].WinRate}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text="{Binding TeamPlayers[1].Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding TeamPlayers[1].Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <ui:Button Grid.Column="1"
-                                  Content="U.GG"
-                                  Appearance="Secondary"
-                                  Command="{Binding OpenUggCommand}"
-                                  CommandParameter="{Binding TeamPlayers[1].UggLink}"
-                                  Width="60"
-                                  Height="28"
-                                  FontSize="12"/>
-                    </Grid>
-                </ui:Card>
-                
-                <!-- Игрок 3 -->
-                <ui:Card Margin="0,0,0,10" Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding TeamPlayers[2].Name}" 
-                                      FontSize="15" 
-                                      FontWeight="SemiBold" 
-                                      Margin="0,0,0,4"/>
-                            
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="{Binding TeamPlayers[2].FullRank}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                <TextBlock Text="{Binding TeamPlayers[2].WinRate}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text="{Binding TeamPlayers[2].Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding TeamPlayers[2].Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <ui:Button Grid.Column="1"
-                                  Content="U.GG"
-                                  Appearance="Secondary"
-                                  Command="{Binding OpenUggCommand}"
-                                  CommandParameter="{Binding TeamPlayers[2].UggLink}"
-                                  Width="60"
-                                  Height="28"
-                                  FontSize="12"/>
-                    </Grid>
-                </ui:Card>
-                
-                <!-- Игрок 4 -->
-                <ui:Card Margin="0,0,0,10" Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding TeamPlayers[3].Name}" 
-                                      FontSize="15" 
-                                      FontWeight="SemiBold" 
-                                      Margin="0,0,0,4"/>
-                            
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="{Binding TeamPlayers[3].FullRank}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                <TextBlock Text="{Binding TeamPlayers[3].WinRate}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text="{Binding TeamPlayers[3].Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding TeamPlayers[3].Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <ui:Button Grid.Column="1"
-                                  Content="U.GG"
-                                  Appearance="Secondary"
-                                  Command="{Binding OpenUggCommand}"
-                                  CommandParameter="{Binding TeamPlayers[3].UggLink}"
-                                  Width="60"
-                                  Height="28"
-                                  FontSize="12"/>
-                    </Grid>
-                </ui:Card>
-                
-                <!-- Игрок 5 -->
-                <ui:Card Margin="0,0,0,10" Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <StackPanel Grid.Column="0">
-                            <TextBlock Text="{Binding TeamPlayers[4].Name}" 
-                                      FontSize="15" 
-                                      FontWeight="SemiBold" 
-                                      Margin="0,0,0,4"/>
-                            
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                <TextBlock Text="{Binding TeamPlayers[4].FullRank}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                <TextBlock Text="{Binding TeamPlayers[4].WinRate}" FontWeight="Medium" FontSize="13"/>
-                                <TextBlock Text="{Binding TeamPlayers[4].Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                <TextBlock Text="{Binding TeamPlayers[4].Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                        
-                        <ui:Button Grid.Column="1"
-                                  Content="U.GG"
-                                  Appearance="Secondary"
-                                  Command="{Binding OpenUggCommand}"
-                                  CommandParameter="{Binding TeamPlayers[4].UggLink}"
-                                  Width="60"
-                                  Height="28"
-                                  FontSize="12"/>
-                    </Grid>
-                </ui:Card>
-            </StackPanel>
+            <!-- Информация о команде (динамически) -->
+            <ItemsControl ItemsSource="{Binding TeamPlayers}"
+                          Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <ui:Card Margin="0,0,0,10" Padding="12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="{Binding Name}"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               Margin="0,0,0,4"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                        <TextBlock Text="{Binding FullRank}" FontWeight="Medium" FontSize="13"/>
+                                        <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
+                                        <TextBlock Text="{Binding WinRate}" FontWeight="Medium" FontSize="13"/>
+                                        <TextBlock Text="{Binding Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
+                                        <TextBlock Text="{Binding Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
+                                    </StackPanel>
+                                </StackPanel>
+                                <ui:Button Grid.Column="1"
+                                          Content="U.GG"
+                                          Appearance="Secondary"
+                                          Command="{Binding DataContext.OpenUggCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                          CommandParameter="{Binding UggLink}"
+                                          Width="60"
+                                          Height="28"
+                                          FontSize="12"/>
+                            </Grid>
+                        </ui:Card>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
             
             <!-- Настройки API -->
             <ui:Card Margin="0,0,0,15">

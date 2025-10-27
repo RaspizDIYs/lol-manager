@@ -100,10 +100,22 @@ public partial class MainViewModel : ObservableObject
 	private List<string> updateModes = new() { "Direct", "Velopack" };
 
 	[ObservableProperty]
+	private bool hasConnectionIssue = false;
+
+	[ObservableProperty]
+	private string connectionIssueText = string.Empty;
+
+	private string _lastConnectionIssueToast = string.Empty;
+	private DateTime _lastConnectionIssueAt = DateTime.MinValue;
+
+	[ObservableProperty]
 	private SystemInfo systemInfo = new();
 
 	[ObservableProperty]
 	private RevealSettings revealSettings = new();
+
+	[ObservableProperty]
+	private LeagueSettings leagueSettings = new();
 
 	[ObservableProperty]
 	private string revealApiStatus = "Не подключен";
@@ -291,6 +303,9 @@ public partial class MainViewModel : ObservableObject
 		
 		// Загружаем настройки Reveal
 		RevealSettings = _settingsService.LoadSetting<RevealSettings>("RevealSettings", new RevealSettings());
+
+		// Загружаем настройки League
+		LeagueSettings = _settingsService.LoadSetting<LeagueSettings>("LeagueSettings", new LeagueSettings());
 		
 		// Устанавливаем API ключ и регион в сервисе
 		_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
@@ -317,6 +332,10 @@ public partial class MainViewModel : ObservableObject
 			{
 				_settingsService.SaveSetting("RevealSettings", RevealSettings);
 			}
+			if (e.PropertyName == nameof(LeagueSettings) && LeagueSettings != null)
+			{
+				_settingsService.SaveSetting("LeagueSettings", LeagueSettings);
+			}
 		};
 		
 		// Подписываемся на изменения настроек Reveal для автоматического сохранения
@@ -332,6 +351,15 @@ public partial class MainViewModel : ObservableObject
 				{
 					_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
 				}
+			};
+		}
+
+		// Сохраняем LeagueSettings при изменениях
+		if (LeagueSettings != null)
+		{
+			LeagueSettings.PropertyChanged += (s, e) =>
+			{
+				_settingsService.SaveSetting("LeagueSettings", LeagueSettings);
 			};
 		}
 		
@@ -405,9 +433,57 @@ public partial class MainViewModel : ObservableObject
 		
 		// Автоматическая проверка обновлений
 		_ = Task.Run(async () => await CheckForUpdatesAsync());
+
+		// Периодический опрос статуса клиента
+		_ = Task.Run(async () => await ConnectivityLoopAsync());
 	}
 
 	[RelayCommand]
+	private void BrowseLeagueInstall()
+	{
+		try
+		{
+			var dlg = new Microsoft.Win32.OpenFileDialog
+			{
+				FileName = "LeagueClient.exe",
+				Filter = "LeagueClient.exe|LeagueClient.exe|Все файлы|*.*",
+				CheckFileExists = true
+			};
+			if (dlg.ShowDialog() == true)
+			{
+				var dir = System.IO.Path.GetDirectoryName(dlg.FileName) ?? string.Empty;
+				LeagueSettings.InstallDirectory = dir;
+				LeagueSettings.PreferManualPath = true;
+				_settingsService.SaveSetting("LeagueSettings", LeagueSettings);
+			}
+		}
+		catch { }
+	}
+
+	[RelayCommand]
+	private void ValidateLeaguePath()
+	{
+		try
+		{
+			var dir = LeagueSettings?.InstallDirectory ?? string.Empty;
+			if (string.IsNullOrWhiteSpace(dir) || !System.IO.Directory.Exists(dir))
+			{
+				MessageWindow.Show("Некорректная папка установки LoL", "Проверка пути", MessageWindow.MessageType.Error);
+				return;
+			}
+			var lf = System.IO.Path.Combine(dir, "lockfile");
+			if (!System.IO.File.Exists(lf))
+			{
+				MessageWindow.Show("Файл lockfile не найден в указанной папке.", "Проверка пути", MessageWindow.MessageType.Warning);
+				return;
+			}
+			MessageWindow.Show("Путь валиден (lockfile найден)", "Проверка пути", MessageWindow.MessageType.Information);
+		}
+		catch (Exception ex)
+		{
+			MessageWindow.Show($"Ошибка проверки: {ex.Message}", "Проверка пути", MessageWindow.MessageType.Error);
+		}
+	}
 	private void ToggleNav()
 	{
 		IsNavExpanded = !IsNavExpanded;
@@ -673,6 +749,86 @@ public partial class MainViewModel : ObservableObject
 		if (_logsCts != null) return;
 		_logsCts = new System.Threading.CancellationTokenSource();
 		_ = Task.Run(() => TailLogsAsync(_logsCts.Token));
+	}
+
+	private System.Threading.CancellationTokenSource? _connectivityCts;
+
+	private async Task ConnectivityLoopAsync()
+	{
+		_connectivityCts = new System.Threading.CancellationTokenSource();
+		var token = _connectivityCts.Token;
+		while (!token.IsCancellationRequested)
+		{
+			try
+			{
+				var status = await _riotClientService.ProbeConnectivityAsync();
+				Application.Current.Dispatcher.Invoke(() =>
+				{
+					// Показываем дружелюбный тост, если есть проблема; иначе скрываем
+					// Если всё ок – не показываем ничего
+					if (status.LcuHttpOk)
+					{
+						HasConnectionIssue = false;
+						ConnectionIssueText = string.Empty;
+						// Не показываем тост при норме
+						_lastConnectionIssueToast = string.Empty;
+						_lastConnectionIssueAt = DateTime.MinValue;
+						return;
+					}
+
+					// Человечные тексты
+					string msg;
+					if (LeagueSettings?.PreferManualPath == true && !string.IsNullOrWhiteSpace(LeagueSettings.InstallDirectory))
+					{
+						var lf = System.IO.Path.Combine(LeagueSettings.InstallDirectory!, "lockfile");
+						if (!System.IO.File.Exists(lf))
+						{
+							msg = "Указанная папка League некорректна — не найден файл lockfile. Проверь путь в настройках.";
+							HasConnectionIssue = true;
+							ConnectionIssueText = msg;
+							return;
+						}
+					}
+
+					if (!status.IsRiotClientRunning && !status.IsLeagueRunning && !status.LcuLockfileFound)
+					{
+						msg = "Клиент не запущен. Открой Riot Client и войди в аккаунт.";
+					}
+					else if (status.IsRiotClientRunning && !status.IsLeagueRunning && !status.LcuLockfileFound)
+					{
+						msg = "Riot Client запущен. Запусти League of Legends из лаунчера.";
+					}
+					else if (status.IsLeagueRunning && !status.LcuLockfileFound)
+					{
+						msg = "League запущен, но не найден lockfile. Подожди 5–10 секунд или перезапусти League.";
+					}
+					else if (status.LcuLockfileFound && !status.LcuHttpOk)
+					{
+						var p = status.LcuPort.HasValue ? $":{status.LcuPort.Value}" : string.Empty;
+						msg = $"Клиент LoL найден, но не отвечает{p}. Возможно, он запускается. Подожди немного и не закрывай окно входа.";
+					}
+					else
+					{
+						msg = "Не удалось подключиться к клиенту LoL. Проверь, что игра запущена.";
+					}
+
+					HasConnectionIssue = true;
+					ConnectionIssueText = msg;
+
+					// Показываем тост только при изменении сообщения или спустя интервал
+					bool shouldToast = !string.Equals(msg, _lastConnectionIssueToast, StringComparison.Ordinal)
+						|| (DateTime.UtcNow - _lastConnectionIssueAt).TotalSeconds > 6;
+					if (shouldToast)
+					{
+						_lastConnectionIssueToast = msg;
+						_lastConnectionIssueAt = DateTime.UtcNow;
+						try { (App.Current?.MainWindow as Views.MainWindow)?.ShowToast(msg, "!", "#E67E22"); } catch { }
+					}
+				});
+			}
+			catch { }
+			try { await Task.Delay(1500, token); } catch (OperationCanceledException) { break; }
+		}
 	}
 
 	private async Task TailLogsAsync(System.Threading.CancellationToken token)

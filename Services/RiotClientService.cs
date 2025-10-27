@@ -15,6 +15,8 @@ using System.Net;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.Management;
+using System.Text.RegularExpressions;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
@@ -28,10 +30,16 @@ public partial class RiotClientService : IRiotClientService
     private record LockfileInfo(string Name, int Pid, int Port, string Password, string Protocol);
     private readonly ILogger _logger;
     private static readonly Dictionary<string, DateTime> _lastLockfileLog = new();
+    private static readonly string[] LcuProcessNames = new[] { "LeagueClientUx", "LeagueClientUxRender", "LeagueClient" };
+    private static readonly string[] RcProcessNames = new[] { "RiotClientUx", "RiotClientUxRender", "Riot Client", "RiotClientServices" };
+    private string? _cachedLeagueInstallPath;
+    private LeagueClientInfo? _leagueInfoCache;
+    private int? _leagueInfoPidCache;
 
     public RiotClientService(ILogger logger)
     {
         _logger = logger;
+        TryLoadManualLeaguePath();
     }
 
     public bool IsRiotClientRunning()
@@ -71,11 +79,11 @@ public partial class RiotClientService : IRiotClientService
             _logger.Info("Both RC processes not running. Restarting Riot Client...");
             await KillRiotClientOnlyAsync();
             await StartRiotClientAsync();
-            await WaitForBothRiotProcessesAsync(TimeSpan.FromSeconds(15));
+            await WaitForBothRiotProcessesAsync(TimeSpan.FromSeconds(15), externalToken);
             coldStart = true;
         }
         // 1b) Убедиться, что RC lockfile готов
-        await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6));
+        await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6), externalToken);
         
         // 2) Проверить, уже ли выполнен вход - если да, выйти
         _logger.LoginFlow("Checking if already logged in", "Before login attempt");
@@ -103,8 +111,8 @@ public partial class RiotClientService : IRiotClientService
         if (coldStart)
         {
             _logger.Info("Cold start: waiting for RiotClientUx window...");
-            await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(3));
-            await Task.Delay(500);
+            await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(3), externalToken);
+            await Task.Delay(500, externalToken);
         }
         // 2c) Запустить прогрев RSO в фоне
         _ = Task.Run(async () => { try { await WarmUpRsoAsync(); } catch { } });
@@ -113,11 +121,11 @@ public partial class RiotClientService : IRiotClientService
         sw.Restart();
         _logger.UiEvent("UIA", "starting TryLoginViaUIAutomationAsync");
         externalToken.ThrowIfCancellationRequested();
-        bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(45));
+        bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(45), externalToken);
         _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
 
         // 4) Параллельно в фоне убедимся, что RC lockfile готов (для фоллбека запуска)
-        var rcLockReady = WaitForRcLockfileAsync(TimeSpan.FromSeconds(30));
+        var rcLockReady = WaitForRcLockfileAsync(TimeSpan.FromSeconds(30), externalToken);
 
         // 5) Агрессивно запускаем League параллельно с проверкой авторизации
         sw.Restart();
@@ -152,12 +160,14 @@ public partial class RiotClientService : IRiotClientService
                 try { await rcLockReady; } catch { }
                 await Task.Delay(500, externalToken);
                 
-                var launched = await TryLaunchLeagueViaRiotApiAsync();
+                externalToken.ThrowIfCancellationRequested();
+                var launched = await TryLaunchLeagueViaRiotApiAsync(externalToken);
                 if (!launched) 
                 {
                     _logger.LoginFlow("API launch failed, trying direct launch", "Using RiotClientServices");
-                    await Task.Delay(500);
-                    launched = await TryLaunchLeagueClientAsync();
+                    await Task.Delay(500, externalToken);
+                    externalToken.ThrowIfCancellationRequested();
+                    launched = await TryLaunchLeagueClientAsync(externalToken);
                 }
                 
                 if (launched)
@@ -165,7 +175,7 @@ public partial class RiotClientService : IRiotClientService
                     _logger.LoginFlow("League launch initiated", "Waiting for League to start");
                     
                     // Ждём появления LCU lockfile
-                    var lcuReady = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30));
+                    var lcuReady = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30), externalToken);
                     if (lcuReady != null)
                     {
                         _logger.LoginFlow("League started successfully", "LCU is ready");
@@ -528,6 +538,337 @@ public partial class RiotClientService : IRiotClientService
         catch (Exception ex)
         {
             _logger.Error($"TryLoginViaUIAutomationAsync error: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> TryLoginViaUIAutomationAsync(string username, string password, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            using var automation = new UIA3Automation();
+
+            Application? rcApp = null;
+            for (int i = 0; i < 20 && rcApp == null; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var p = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault()
+                        ?? Process.GetProcessesByName("Riot Client").FirstOrDefault();
+                if (p != null)
+                {
+                    try { rcApp = Application.Attach(p); _logger.Info($"UIA: attached to process {p.ProcessName}[{p.Id}]"); } catch (Exception ex) { _logger.Error($"UIA: attach failed: {ex.Message}"); }
+                }
+                if (rcApp == null) await Task.Delay(250, cancellationToken);
+            }
+            if (rcApp == null) { _logger.Info("UIA: no RC process to attach"); return false; }
+
+            Window? window = null;
+            var deadlineWin = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (DateTime.UtcNow < deadlineWin && window == null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                window = rcApp.GetMainWindow(automation, TimeSpan.FromSeconds(1));
+                if (window == null) await Task.Delay(150, cancellationToken);
+            }
+            if (window == null) { _logger.Info("UIA: main window not found within timeout"); return false; }
+
+            IntPtr hwnd = IntPtr.Zero;
+            try
+            {
+                hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
+                _logger.Info($"UIA: main window handle=0x{window.Properties.NativeWindowHandle.Value:X}");
+            }
+            catch { }
+
+            AutomationElement? riotContent = null;
+            TextBox? usernameEl = null;
+            TextBox? passwordEl = null;
+            AutomationElement? signInElement = null;
+            bool contentLogged = false;
+            bool usernameLogged = false;
+            bool passwordLogged = false;
+            bool buttonLogged = false;
+            bool signInClicked = false;
+
+            int scanCycles = 0;
+            int stableFieldsCycles = 0;
+            int lastEditsCount = -1;
+            var lastStateLog = DateTime.MinValue;
+
+            if (hwnd != IntPtr.Zero)
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    ShowWindow(hwnd, ShowWindowCommands.Restore);
+                    SetForegroundWindow(hwnd);
+                    await Task.Delay(50, cancellationToken);
+                }
+                _logger.Info("UIA: window activated");
+            }
+
+            await Task.Delay(100, cancellationToken);
+            while (DateTime.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (scanCycles % 10 == 0 && hwnd != IntPtr.Zero)
+                {
+                    ShowWindow(hwnd, ShowWindowCommands.Restore);
+                    SetForegroundWindow(hwnd);
+                }
+
+                riotContent ??= window.FindFirstDescendant(cf =>
+                                        cf.ByClassName("Chrome_RenderWidgetHostHWND")
+                                          .Or(cf.ByClassName("Chrome_WidgetWin_0"))
+                                          .Or(cf.ByClassName("Intermediate D3D Window")))
+                                   ?? window;
+                if (riotContent != null && !contentLogged)
+                {
+                    try { _logger.Info($"UIA: riotContent class='{riotContent.Properties.ClassName?.Value ?? "null"}'"); } catch { }
+                    contentLogged = true;
+                }
+
+                usernameEl ??= riotContent?.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("username").Or(cf.ByAutomationId("login")).Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя"))
+                )?.AsTextBox();
+                passwordEl ??= riotContent?.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password"))
+                )?.AsTextBox();
+                if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = DIRECT (username/password by AutomationId/Name)"); usernameLogged = true; }
+                if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = DIRECT (username/password by AutomationId/Name)"); passwordLogged = true; }
+
+                if (usernameEl == null || passwordEl == null)
+                {
+                    var edits = riotContent?.FindAllDescendants(cf => cf.ByControlType(ControlType.Edit)) ?? new FlaUI.Core.AutomationElements.AutomationElement[0];
+                    if (edits.Length != lastEditsCount && (DateTime.Now - lastStateLog).TotalMilliseconds > 1000)
+                    {
+                        _logger.Info($"UIA: edits count in content = {edits.Length}");
+                        lastStateLog = DateTime.Now;
+                        lastEditsCount = edits.Length;
+                    }
+                    if (edits.Length >= 2)
+                    {
+                        usernameEl ??= edits[0].AsTextBox();
+                        passwordEl ??= edits[1].AsTextBox();
+                        if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = EDIT_INDEX (username via edits[0])"); usernameLogged = true; }
+                        if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = EDIT_INDEX (password via edits[1])"); passwordLogged = true; }
+                    }
+                }
+                if (usernameEl == null || passwordEl == null)
+                {
+                    var uAlt = window.FindFirstDescendant(cf => cf.ByAutomationId("username").Or(cf.ByAutomationId("login"))
+                        .Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя")))?.AsTextBox();
+                    var pAlt = window.FindFirstDescendant(cf => cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password")))?.AsTextBox();
+                    usernameEl ??= uAlt;
+                    passwordEl ??= pAlt;
+                    if (usernameEl != null && !usernameLogged) { _logger.Info("UIA: FIELD_DISCOVERY = WINDOW_LEVEL (username via window-wide search)"); usernameLogged = true; }
+                    if (passwordEl != null && !passwordLogged) { _logger.Info("UIA: FIELD_DISCOVERY = WINDOW_LEVEL (password via window-wide search)"); passwordLogged = true; }
+                }
+
+                if (signInElement == null)
+                {
+                    var checkbox = riotContent?.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                    if (checkbox != null && checkbox.Parent != null)
+                    {
+                        var siblings = checkbox.Parent.FindAllChildren();
+                        var index = Array.IndexOf(siblings, checkbox) + 1;
+                        for (int i = index; i < siblings.Length; i++)
+                        {
+                            if (siblings[i].ControlType == ControlType.Button)
+                            {
+                                signInElement = siblings[i];
+                                break;
+                            }
+                        }
+                    }
+                    if (signInElement == null)
+                    {
+                        signInElement = riotContent?.FindFirstDescendant(cf =>
+                            cf.ByControlType(ControlType.Button)
+                              .And(cf.ByName("Sign in").Or(cf.ByName("Sign In")).Or(cf.ByName("Log In")).Or(cf.ByName("Войти"))));
+                    }
+                    if (signInElement != null && !buttonLogged)
+                    {
+                        try { _logger.Info($"UIA: SignIn button found: name='{signInElement.Properties.Name.Value}'"); } catch { _logger.Info("UIA: SignIn button found"); }
+                        buttonLogged = true;
+                    }
+                    if (!signInClicked && signInElement != null && (usernameEl == null || passwordEl == null))
+                    {
+                        _logger.Info("UIA: clicking SignIn to open form");
+                        try { signInElement.AsButton().Invoke(); }
+                        catch { try { signInElement.Click(); } catch { } }
+                        signInClicked = true;
+                        await Task.Delay(300, cancellationToken);
+                        continue;
+                    }
+                }
+
+                if (usernameEl != null && passwordEl != null)
+                {
+                    stableFieldsCycles++;
+                    if (stableFieldsCycles >= 1) break;
+                }
+                else
+                {
+                    stableFieldsCycles = 0;
+                }
+
+                scanCycles++;
+                if (scanCycles % 20 == 0 && hwnd != IntPtr.Zero)
+                {
+                    try
+                    {
+                        _logger.Info("UIA: center click to wake up RC content");
+                        ClickWindowRelative(hwnd, 0.5, 0.5);
+                    }
+                    catch { }
+                }
+                await Task.Delay(80, cancellationToken);
+            }
+
+            if (usernameEl == null || passwordEl == null)
+            {
+                _logger.Info("UIA: username/password fields not found (timeout)");
+                return false;
+            }
+
+            _logger.Info("UIA: setting focus on username field");
+            try 
+            { 
+                usernameEl.Focus();
+                await Task.Delay(30, cancellationToken);
+                usernameEl.Click(moveMouse: false);
+                await Task.Delay(30, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"UIA: focus/click failed: {ex.Message}, trying alternative");
+                try { usernameEl.Focus(); } catch { }
+            }
+
+            _logger.Info("UIA: setting username");
+            if (usernameEl.Patterns.Value.IsSupported)
+            {
+                usernameEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                await Task.Delay(30, cancellationToken);
+                usernameEl.Patterns.Value.Pattern.SetValue(username);
+                _logger.Info("UIA: INPUT_METHOD = VALUE_PATTERN (username via ValuePattern.SetValue)");
+            }
+            else
+            {
+                usernameEl.Focus();
+                await Task.Delay(50, cancellationToken);
+                usernameEl.Text = username;
+                _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (username via Text property)");
+            }
+            await Task.Delay(80, cancellationToken);
+            for (int i = 0; i < 2; i++)
+            {
+                var current = usernameEl.Text ?? string.Empty;
+                if (string.Equals(current, username, StringComparison.Ordinal)) break;
+                _logger.Info($"UIA: username mismatch (got {current.Length} chars, expected {username.Length}), retry {i+1}");
+                if (usernameEl.Patterns.Value.IsSupported)
+                {
+                    usernameEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                    usernameEl.Patterns.Value.Pattern.SetValue(username);
+                }
+                else
+                {
+                    usernameEl.Focus();
+                    await Task.Delay(60, cancellationToken);
+                    usernameEl.Text = username;
+                }
+                await Task.Delay(80, cancellationToken);
+            }
+
+            _logger.Info("UIA: setting password");
+            if (passwordEl.Patterns.Value.IsSupported)
+            {
+                passwordEl.Patterns.Value.Pattern.SetValue(string.Empty);
+                await Task.Delay(30, cancellationToken);
+                passwordEl.Patterns.Value.Pattern.SetValue(password);
+                _logger.Info("UIA: INPUT_METHOD = VALUE_PATTERN (password via ValuePattern.SetValue)");
+            }
+            else
+            {
+                passwordEl.Focus();
+                await Task.Delay(50, cancellationToken);
+                passwordEl.Text = password;
+                _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (password via Text property)");
+            }
+            await Task.Delay(80, cancellationToken);
+
+            try
+            {
+                var checkbox = riotContent?.FindFirstDescendant(cf => cf.ByControlType(ControlType.CheckBox));
+                if (checkbox != null)
+                {
+                    var checkboxControl = checkbox.AsCheckBox();
+                    if (checkboxControl.IsChecked != true)
+                    {
+                        _logger.Info("UIA: activating 'Remember Me' checkbox");
+                        checkboxControl.Toggle();
+                    }
+                    else
+                    {
+                        _logger.Info("UIA: 'Remember Me' checkbox already checked");
+                    }
+                }
+                else
+                {
+                    _logger.Info("UIA: 'Remember Me' checkbox not found");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"UIA: failed to activate 'Remember Me' checkbox: {ex.Message}");
+            }
+            await Task.Delay(50, cancellationToken);
+
+            if (signInElement != null)
+            {
+                _logger.UiEvent("UIA Login", "BUTTON_CLICK", "SignIn button found and clicked");
+                try { signInElement.AsButton().Invoke(); }
+                catch
+                {
+                    try { signInElement.Click(); } catch { }
+                }
+            }
+            else
+            {
+                try
+                {
+                    var active = GetForegroundWindow();
+                    if (active == new IntPtr(window.Properties.NativeWindowHandle.Value))
+                    {
+                        passwordEl.Focus();
+                        await Task.Delay(30, cancellationToken);
+                        _logger.UiEvent("UIA Login", "ENTER_KEY", "SignIn button not found, using Enter");
+                        SendVirtualKey(VirtualKey.RETURN);
+                    }
+                    else { _logger.Info("UIA: skip ENTER, RC window not active"); }
+                }
+                catch { }
+            }
+
+            while (DateTime.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try { var l = FindLockfile(product: "LCU"); _logger.Info("UIA: LCU detected"); return true; } catch { }
+                await Task.Delay(500, cancellationToken);
+            }
+            _logger.Info("UIA: LCU not detected within timeout after submit");
+            return false;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Info("UIA: cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"TryLoginViaUIAutomationAsync(ct) error: {ex.Message}");
             return false;
         }
     }
@@ -982,6 +1323,258 @@ public partial class RiotClientService : IRiotClientService
         }
     }
 
+    private async Task<bool> TryLaunchLeagueViaRiotApiAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LoginFlow("Trying to launch League via Riot API", "Checking RC lockfile");
+            try { _ = FindLockfile(product: "RC"); }
+            catch { await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6), cancellationToken); }
+            var rc = FindLockfile(product: "RC");
+            using var rcClient = CreateHttpClient(rc.Port, rc.Password);
+            _logger.LoginFlow("Trying new product-launcher endpoint", "/products/league_of_legends/patchlines/live/launch");
+            var payload = new { additionalArguments = new[] { "--launch-product=league_of_legends", "--launch-patchline=live" } };
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            cancellationToken.ThrowIfCancellationRequested();
+            var resp = await rcClient.PostAsync("/product-launcher/v1/products/league_of_legends/patchlines/live/launch", content, cancellationToken);
+            _logger.HttpRequest("POST", "/product-launcher/v1/products/league_of_legends/patchlines/live/launch", (int)resp.StatusCode);
+            if (resp.IsSuccessStatusCode) 
+            {
+                _logger.LoginFlow("League launch via new API successful", "League should be starting");
+                return true;
+            }
+            _logger.LoginFlow("Trying old universal endpoint", "/product-launcher/v1/launch");
+            var oldPayload = new { product = "league_of_legends", patchline = "live", additionalArguments = new[] { "--launch-product=league_of_legends", "--launch-patchline=live" } };
+            var oldJson = JsonSerializer.Serialize(oldPayload);
+            cancellationToken.ThrowIfCancellationRequested();
+            var oldResp = await rcClient.PostAsync("/product-launcher/v1/launch", new StringContent(oldJson, Encoding.UTF8, "application/json"), cancellationToken);
+            _logger.HttpRequest("POST", "/product-launcher/v1/launch", (int)oldResp.StatusCode);
+            if (oldResp.IsSuccessStatusCode)
+            {
+                _logger.LoginFlow("League launch via old API successful", "League should be starting");
+                return true;
+            }
+            else
+            {
+                _logger.LoginFlow("Both API endpoints failed", $"New: {(int)resp.StatusCode}, Old: {(int)oldResp.StatusCode}");
+                return false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Info("TryLaunchLeagueViaRiotApiAsync cancelled");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"TryLaunchLeagueViaRiotApiAsync(ct) error: {ex.Message}");
+            return false;
+        }
+    }
+
+    public async Task<Models.ClientConnectivityStatus> ProbeConnectivityAsync()
+    {
+        var status = new Models.ClientConnectivityStatus();
+        try { status.IsRiotClientRunning = AreBothRiotProcessesRunning() || RcProcessNames.Any(n => Process.GetProcessesByName(n).Length > 0); } catch { }
+        try { status.IsLeagueRunning = IsLeagueProcessRunning(); } catch { }
+
+        // RC lockfile
+        try { var rc = FindLockfile(product: "RC"); status.RcLockfileFound = true; } catch { status.RcLockfileFound = false; }
+
+        // LCU lockfile + HTTP probe
+        try
+        {
+            var info = await GetLeagueClientInfoAsync();
+            if (info != null)
+            {
+                status.LcuLockfileFound = !string.IsNullOrEmpty(info.LockfilePath) && File.Exists(info.LockfilePath);
+                status.LcuPort = info.Port;
+                status.LcuLockfilePath = info.LockfilePath;
+                status.LeagueInstallPath = info.InstallDirectory;
+                if (info.Port.HasValue && !string.IsNullOrEmpty(info.Password))
+                {
+                    using var c = CreateHttpClient(info.Port.Value, info.Password!);
+                    try
+                    {
+                        var resp = await c.GetAsync("/help");
+                        status.LcuHttpOk = resp.IsSuccessStatusCode || (int)resp.StatusCode == 404;
+                    }
+                    catch { status.LcuHttpOk = false; }
+                    return status;
+                }
+            }
+
+            var lcu = FindLockfile(product: "LCU");
+            status.LcuLockfileFound = true;
+            status.LcuPort = lcu.Port;
+            status.LcuLockfilePath = TryGetLeagueRootFromNearby(lcu) ?? ResolveLeagueRootFromProcesses() ?? ResolveLeagueRootFromInstallsJson();
+            status.LeagueInstallPath = status.LcuLockfilePath;
+            using var c2 = CreateHttpClient(lcu.Port, lcu.Password);
+            try
+            {
+                var resp2 = await c2.GetAsync("/help");
+                status.LcuHttpOk = resp2.IsSuccessStatusCode || (int)resp2.StatusCode == 404;
+            }
+            catch { status.LcuHttpOk = false; }
+        }
+        catch
+        {
+            status.LcuLockfileFound = false;
+            status.LcuHttpOk = false;
+            status.LcuPort = null;
+            status.LcuLockfilePath = null;
+            status.LeagueInstallPath = ResolveLeagueRootFromProcesses() ?? ResolveLeagueRootFromInstallsJson();
+        }
+        return status;
+    }
+
+    public async Task<LeagueClientInfo?> GetLeagueClientInfoAsync(bool forceRefresh = false)
+    {
+        try
+        {
+            await Task.Yield();
+            // 0) Учитываем ручной путь пользователя, если задан и актуален
+            if (!forceRefresh && !string.IsNullOrEmpty(_cachedLeagueInstallPath) && File.Exists(Path.Combine(_cachedLeagueInstallPath, "lockfile")))
+            {
+                return new LeagueClientInfo
+                {
+                    InstallDirectory = _cachedLeagueInstallPath,
+                    LockfilePath = Path.Combine(_cachedLeagueInstallPath, "lockfile"),
+                    LastUpdatedUtc = DateTime.UtcNow
+                };
+            }
+            if (!forceRefresh && _leagueInfoCache != null)
+            {
+                try
+                {
+                    if (_leagueInfoPidCache.HasValue && Process.GetProcesses().Any(p => p.Id == _leagueInfoPidCache.Value))
+                        return _leagueInfoCache;
+                }
+                catch { }
+            }
+
+            LeagueClientInfo? best = null;
+            foreach (var proc in SafeQueryWmiLeagueProcesses())
+            {
+                string cmd = proc.CommandLine;
+                string exe = proc.ExecutablePath;
+                int pid = proc.Pid;
+                if (string.IsNullOrEmpty(cmd) && string.IsNullOrEmpty(exe)) continue;
+
+                var info = new LeagueClientInfo
+                {
+                    LeagueClientUxPid = pid,
+                    CommandLine = cmd,
+                    InstallDirectory = InferInstallDir(cmd, exe),
+                    Port = TryExtractInt(cmd, "--app-port"),
+                    Password = TryExtractString(cmd, "--remoting-auth-token"),
+                    Protocol = TryExtractString(cmd, "--app-protocol") ?? "https",
+                    LastUpdatedUtc = DateTime.UtcNow
+                };
+                if (!string.IsNullOrEmpty(info.InstallDirectory))
+                {
+                    info.LockfilePath = Path.Combine(info.InstallDirectory, "lockfile");
+                    _cachedLeagueInstallPath = info.InstallDirectory;
+                    SaveDetectedInstallPath(_cachedLeagueInstallPath);
+                }
+                best ??= info;
+                // предпочтём тот, у кого есть порт и токен
+                if (info.Port.HasValue && !string.IsNullOrEmpty(info.Password))
+                {
+                    best = info;
+                    break;
+                }
+            }
+
+            _leagueInfoCache = best;
+            _leagueInfoPidCache = best?.LeagueClientUxPid;
+            return _leagueInfoCache;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"GetLeagueClientInfoAsync WMI failed: {ex.Message}");
+            return _leagueInfoCache;
+        }
+
+    }
+
+    private sealed record WmiProcRow(int Pid, string CommandLine, string ExecutablePath);
+
+    private IEnumerable<WmiProcRow> SafeQueryWmiLeagueProcesses()
+    {
+        // Проверка наличия WMI (System.Management может отсутствовать на системе/заблокирован)
+        bool wmiOk = false;
+        ManagementObjectCollection? results = null;
+        try
+        {
+            using var searcher = new ManagementObjectSearcher("SELECT ProcessId, CommandLine, ExecutablePath FROM Win32_Process WHERE Name='LeagueClientUx.exe' OR Name='LeagueClientUxRender.exe'");
+            results = searcher.Get();
+            wmiOk = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"WMI query failed/unavailable: {ex.Message}. Falling back to Process API.");
+            wmiOk = false;
+        }
+        if (wmiOk && results != null)
+        {
+            foreach (ManagementObject mo in results)
+            {
+                int pid = 0; string cmd = string.Empty; string exe = string.Empty;
+                try { pid = Convert.ToInt32(mo["ProcessId"]); } catch { }
+                try { cmd = mo["CommandLine"]?.ToString() ?? string.Empty; } catch { }
+                try { exe = mo["ExecutablePath"]?.ToString() ?? string.Empty; } catch { }
+                yield return new WmiProcRow(pid, cmd, exe);
+            }
+            yield break;
+        }
+
+        // Фоллбек: стандартный Process API (без командной строки, но есть путь процесса)
+        foreach (var p in Process.GetProcessesByName("LeagueClientUx").Concat(Process.GetProcessesByName("LeagueClientUxRender")))
+        {
+            string exe = string.Empty;
+            try { exe = p.MainModule?.FileName ?? string.Empty; } catch { }
+            yield return new WmiProcRow(p.Id, string.Empty, exe);
+        }
+    }
+
+    private void TryLoadManualLeaguePath()
+    {
+        try
+        {
+            var settings = new SettingsService();
+            var ls = settings.LoadSetting<LeagueSettings>("LeagueSettings", new LeagueSettings());
+            if (ls.PreferManualPath && !string.IsNullOrEmpty(ls.InstallDirectory))
+            {
+                if (Directory.Exists(ls.InstallDirectory))
+                {
+                    _cachedLeagueInstallPath = ls.InstallDirectory;
+                    _logger.Info($"Manual League path loaded: {_cachedLeagueInstallPath}");
+                }
+            }
+        }
+        catch { }
+    }
+
+    private void SaveDetectedInstallPath(string installDir)
+    {
+        try
+        {
+            var settings = new SettingsService();
+            var ls = settings.LoadSetting<LeagueSettings>("LeagueSettings", new LeagueSettings());
+            ls.LastDetectedInstallDirectory = installDir;
+            ls.LastDetectedAtUtc = DateTime.UtcNow;
+            // Если пользователь ещё не зафиксировал ручной путь — подставим авто‑обнаруженный для удобства
+            if (!ls.PreferManualPath && string.IsNullOrEmpty(ls.InstallDirectory))
+            {
+                ls.InstallDirectory = installDir;
+            }
+            settings.SaveSetting("LeagueSettings", ls);
+        }
+        catch { }
+    }
+
     private async Task<bool> IsRsoAuthorizedAsync()
     {
         try
@@ -1074,6 +1667,23 @@ public partial class RiotClientService : IRiotClientService
             }
             catch { }
             await Task.Delay(100);
+        }
+    }
+
+    private async Task WaitForRiotUxWindowAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var ux = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                      ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault();
+                if (ux != null) return;
+            }
+            catch { }
+            await Task.Delay(100, cancellationToken);
         }
     }
 
@@ -1345,6 +1955,86 @@ public partial class RiotClientService : IRiotClientService
             _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
             await Task.Delay(3000); // Увеличиваем задержку
             return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Launch League Client failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private async Task<bool> TryLaunchLeagueClientAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LoginFlow("Trying to launch League via RiotClientServices", "Searching for executable");
+            
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var installsPath = Path.Combine(programData, "Riot Games", "RiotClientInstalls.json");
+            string? riotClientPath = null;
+            if (File.Exists(installsPath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(installsPath);
+                    var installData = Newtonsoft.Json.JsonConvert.DeserializeObject<dynamic>(json);
+                    if (installData?.associated_client != null)
+                    {
+                        foreach (var client in installData.associated_client)
+                        {
+                            var path = client?.rc_live?.Value as string;
+                            if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                            {
+                                riotClientPath = path;
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Failed to parse RiotClientInstalls.json: {ex.Message}");
+                }
+            }
+            var candidates = new[]
+            {
+                riotClientPath,
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    "Riot Games", "Riot Client", "RiotClientServices.exe"),
+                Path.Combine("C:\\Riot Games", "Riot Client", "RiotClientServices.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Riot Games", "Riot Client", "RiotClientServices.exe"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                    "Riot Games", "Riot Client", "RiotClientServices.exe")
+            };
+            string? exe = null;
+            foreach (var p in candidates)
+            {
+                if (!string.IsNullOrEmpty(p) && File.Exists(p)) { exe = p; break; }
+            }
+            if (exe == null) 
+            { 
+                _logger.LoginFlow("RiotClientServices.exe not found", "Cannot launch League via RiotClientServices");
+                return false; 
+            }
+            _logger.LoginFlow("Found RiotClientServices.exe", $"Path: {exe}");
+            var psi = new ProcessStartInfo
+            {
+                FileName = exe,
+                Arguments = "--launch-product=league_of_legends --launch-patchline=live",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? Environment.CurrentDirectory
+            };
+            Process.Start(psi);
+            _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
+            await Task.Delay(3000, cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Info("Launch League via RiotClientServices cancelled");
+            throw;
         }
         catch (Exception ex)
         {
@@ -1632,6 +2322,31 @@ public partial class RiotClientService : IRiotClientService
         return null;
     }
 
+    private async Task<LockfileInfo?> WaitForLcuLockfileAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        _logger.LoginFlow("Waiting for LCU lockfile", $"Timeout: {timeout.TotalSeconds}s");
+        var deadline = DateTime.UtcNow + timeout;
+        var startTime = DateTime.UtcNow;
+        int attempts = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            attempts++;
+            try
+            {
+                var lcu = FindLockfile(product: "LCU");
+                var elapsed = DateTime.UtcNow - startTime;
+                _logger.LoginFlow("LCU lockfile found", $"After {elapsed.TotalSeconds:F1}s, {attempts} attempts");
+                return lcu;
+            }
+            catch { }
+            await Task.Delay(200, cancellationToken);
+        }
+        var totalElapsed = DateTime.UtcNow - startTime;
+        _logger.LoginFlow("LCU lockfile timeout", $"After {totalElapsed.TotalSeconds:F1}s, {attempts} attempts - League did not start");
+        return null;
+    }
+
     private async Task<bool> TryLaunchLeagueViaRegistryAsync()
     {
         try
@@ -1732,6 +2447,22 @@ public partial class RiotClientService : IRiotClientService
         }
     }
 
+    private async Task WaitForRcLockfileAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                _ = FindLockfile(product: "RC");
+                return;
+            }
+            catch { }
+            await Task.Delay(200, cancellationToken);
+        }
+    }
+
     private async Task KillRiotClientOnlyAsync()
     {
         try
@@ -1767,16 +2498,18 @@ public partial class RiotClientService : IRiotClientService
 
     private bool IsLeagueProcessRunning()
     {
-        var leagueProcesses = new[] { "LeagueClient", "LeagueClientUx" };
-        foreach (var processName in leagueProcesses)
+        try
         {
-            if (Process.GetProcessesByName(processName).Length > 0)
+            var leagueProcesses = new[] { "LeagueClient", "LeagueClientUx" };
+            foreach (var processName in leagueProcesses)
             {
-                _logger.ProcessEvent(processName, "Process found", "League is running");
-                return true;
+                if (Process.GetProcessesByName(processName).Length > 0)
+                {
+                    return true;
+                }
             }
         }
-        _logger.ProcessEvent("League", "Process check", "No League processes found");
+        catch { }
         return false;
     }
 
@@ -1787,6 +2520,17 @@ public partial class RiotClientService : IRiotClientService
         {
             if (AreBothRiotProcessesRunning()) return;
             await Task.Delay(200);
+        }
+    }
+
+    private async Task WaitForBothRiotProcessesAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (AreBothRiotProcessesRunning()) return;
+            await Task.Delay(200, cancellationToken);
         }
     }
 
@@ -1879,32 +2623,24 @@ public partial class RiotClientService : IRiotClientService
 
     private LockfileInfo FindLockfile(string product)
     {
-        string[] candidatePaths = product switch
+        string? path = null;
+        if (product == "RC")
         {
-            "RC" => new[]
+            var rcCandidates = new List<string>
             {
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Riot Games", "Riot Client", "Config", "lockfile"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "Riot Games", "Riot Client", "lockfile")
-            },
-            "LCU" => new[]
-            {
-                Path.Combine("C:\\Riot Games", "League of Legends", "lockfile"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                    "Riot Games", "League of Legends", "lockfile"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                    "Riot Games", "League of Legends", "lockfile"),
-                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Riot Games", "League of Legends", "lockfile")
-            },
-            _ => Array.Empty<string>()
-        };
-
-        string? path = null;
-        foreach (var p in candidatePaths)
+            };
+            foreach (var p in rcCandidates) { if (File.Exists(p)) { path = p; break; } }
+        }
+        else if (product == "LCU")
         {
-            if (File.Exists(p)) { path = p; break; }
+            foreach (var p in EnumerateLcuLockfileCandidates())
+            {
+                if (File.Exists(p)) { path = p; break; }
+            }
         }
 
         if (path == null)
@@ -1943,6 +2679,196 @@ public partial class RiotClientService : IRiotClientService
             parts[3],
             parts[4]
         );
+    }
+
+    private IEnumerable<string> EnumerateLcuLockfileCandidates()
+    {
+        // 0) Из кэша пути установки
+        if (!string.IsNullOrEmpty(_cachedLeagueInstallPath))
+            yield return Path.Combine(_cachedLeagueInstallPath, "lockfile");
+
+        // 1) Из процессов (ищем рядом/выше по дереву каталогов)
+        foreach (var proc in LcuProcessNames.SelectMany(n => Process.GetProcessesByName(n)))
+        {
+            string? exe = null;
+            try { exe = proc.MainModule?.FileName; } catch { }
+            if (string.IsNullOrEmpty(exe)) continue;
+            var dir = Path.GetDirectoryName(exe);
+            if (string.IsNullOrEmpty(dir)) continue;
+            foreach (var root in AscendDirs(dir, 4))
+            {
+                var lf = Path.Combine(root, "lockfile");
+                yield return lf;
+            }
+        }
+
+        // 2) Из RiotClientInstalls.json (ProgramData)
+        var fromInstalls = ResolveLeagueRootFromInstallsJson();
+        if (!string.IsNullOrEmpty(fromInstalls))
+        {
+            _cachedLeagueInstallPath = fromInstalls;
+            yield return Path.Combine(fromInstalls!, "lockfile");
+        }
+
+        // 3) Из кеша
+        if (!string.IsNullOrEmpty(_cachedLeagueInstallPath))
+        {
+            yield return Path.Combine(_cachedLeagueInstallPath, "lockfile");
+        }
+
+        // 4) Стандартные пути
+        var standard = new[]
+        {
+            Path.Combine("C:\\Riot Games", "League of Legends", "lockfile"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Riot Games", "League of Legends", "lockfile"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Riot Games", "League of Legends", "lockfile"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Riot Games", "League of Legends", "lockfile")
+        };
+        foreach (var p in standard) yield return p;
+    }
+
+    private static IEnumerable<string> AscendDirs(string startDir, int maxLevels)
+    {
+        var cur = startDir;
+        for (int i = 0; i < maxLevels && !string.IsNullOrEmpty(cur); i++)
+        {
+            yield return cur;
+            try { cur = Path.GetDirectoryName(cur); } catch { cur = null; }
+        }
+    }
+
+    private string? ResolveLeagueRootFromProcesses()
+    {
+        try
+        {
+            foreach (var proc in LcuProcessNames.SelectMany(n => Process.GetProcessesByName(n)))
+            {
+                try
+                {
+                    var exe = proc.MainModule?.FileName;
+                    if (string.IsNullOrEmpty(exe)) continue;
+                    var dir = Path.GetDirectoryName(exe);
+                    if (string.IsNullOrEmpty(dir)) continue;
+                    foreach (var root in AscendDirs(dir, 4))
+                    {
+                        var lf = Path.Combine(root, "lockfile");
+                        if (File.Exists(lf)) return root;
+                    }
+                }
+                catch { }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private string? TryGetLeagueRootFromNearby(LockfileInfo lcu)
+    {
+        try
+        {
+            // У нас есть lockfile путь только внутри FindLockfile, тут нет пути.
+            // Этот метод оставлен для совместимости API и может быть расширен, если начнём хранить путь.
+            return _cachedLeagueInstallPath;
+        }
+        catch { return null; }
+    }
+
+    private string? ResolveLeagueRootFromInstallsJson()
+    {
+        try
+        {
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            var installsPath = Path.Combine(programData, "Riot Games", "RiotClientInstalls.json");
+            if (!File.Exists(installsPath)) return null;
+            var json = File.ReadAllText(installsPath);
+            var lower = json.ToLowerInvariant();
+            var keys = new[] { "league of legends", "leagueclient.exe", "leagueclientux.exe" };
+            foreach (var key in keys)
+            {
+                var idx = lower.IndexOf(key, StringComparison.Ordinal);
+                if (idx > 0)
+                {
+                    var start = lower.LastIndexOf("c:\\", idx, idx);
+                    if (start >= 0)
+                    {
+                        var end = lower.IndexOf("\\r", start);
+                        var line = end > start ? json.Substring(start, end - start) : json.Substring(start);
+                        var baseDir = Path.GetDirectoryName(line);
+                        if (!string.IsNullOrEmpty(baseDir)) return baseDir;
+                    }
+                }
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private static string? InferInstallDir(string commandLine, string executablePath)
+    {
+        // 1) Явный ключ в командной строке
+        var fromArg = TryExtractPath(commandLine, "--install-directory");
+        if (!string.IsNullOrEmpty(fromArg) && Directory.Exists(fromArg)) return fromArg;
+
+        // 2) Отталкиваемся от ExecutablePath процесса LeagueClientUx
+        if (!string.IsNullOrEmpty(executablePath))
+        {
+            var dir = Path.GetDirectoryName(executablePath);
+            // LeagueClientUx.exe обычно лежит глубже корня LoL, поднимемся до 4 уровней и проверим наличие lockfile
+            foreach (var root in AscendDirs(dir ?? string.Empty, 4))
+            {
+                var lf = Path.Combine(root, "lockfile");
+                if (File.Exists(lf)) return root;
+                if (root.EndsWith("League of Legends", StringComparison.OrdinalIgnoreCase)) return root;
+            }
+            // fallback — исходная папка
+            if (!string.IsNullOrEmpty(dir)) return dir;
+        }
+
+        // 3) Ничего не нашли
+        return null;
+    }
+
+    private static int? TryExtractInt(string commandLine, string key)
+    {
+        var val = TryExtractString(commandLine, key);
+        if (int.TryParse(val, out var n)) return n;
+        return null;
+    }
+
+    private static string? TryExtractString(string commandLine, string key)
+    {
+        if (string.IsNullOrEmpty(commandLine)) return null;
+        // поддержим варианты: --key=VALUE, --key "VALUE", --key VALUE, где VALUE может содержать пробелы (до следующего ' --' или конца строки)
+        var keyName = Regex.Escape(key.TrimStart('-'));
+        var patterns = new[]
+        {
+            // --key="quoted value with spaces"
+            $@"--{keyName}\s*=\s*""(?<v>[^""]+)""",
+            // --key=unquoted value possibly with spaces (capture until next ' --' or EOL)
+            $@"--{keyName}\s*=\s*(?<v>.+?)(?=\s--|$)",
+            // --key "quoted value with spaces"
+            $@"--{keyName}\s+""(?<v>[^""]+)""",
+            // --key unquoted value (capture until next ' --' or EOL)
+            $@"--{keyName}\s+(?<v>.+?)(?=\s--|$)"
+        };
+        foreach (var pat in patterns)
+        {
+            var m = Regex.Match(commandLine, pat, RegexOptions.IgnoreCase);
+            if (m.Success) return m.Groups["v"].Value;
+        }
+        return null;
+    }
+
+    private static string? TryExtractPath(string commandLine, string key)
+    {
+        var s = TryExtractString(commandLine, key);
+        if (string.IsNullOrEmpty(s)) return null;
+        // Уберём лишние кавычки и нормализуем
+        s = s.Trim().Trim('"');
+        try { return Path.GetFullPath(s); } catch { return s; }
     }
 
     private HttpClient CreateHttpClient(int port, string password)
@@ -2297,8 +3223,8 @@ public partial class RiotClientService : IRiotClientService
 
 	public async Task<string?> PostAsync(string endpoint, HttpContent content)
 	{
-		var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(5));
-		if (lcu == null)
+        var lcu = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(5));
+        if (lcu == null)
 		{
 			_logger.Error("LCU not found for POST request");
 			return null;
@@ -2326,19 +3252,24 @@ public partial class RiotClientService : IRiotClientService
     {
         try
         {
+            var info = await GetLeagueClientInfoAsync();
+            if (info != null && info.Port.HasValue && !string.IsNullOrEmpty(info.Password))
+            {
+                return (info.Port.Value, info.Password!);
+            }
+        }
+        catch { }
+        try
+        {
             var lcu = FindLockfile("LCU");
             return (lcu.Port, lcu.Password);
         }
         catch
         {
-            // Попробуем короткое ожидание на случай гоночного состояния
             try
             {
                 var ready = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(3));
-                if (ready != null)
-                {
-                    return (ready.Port, ready.Password);
-                }
+                if (ready != null) return (ready.Port, ready.Password);
             }
             catch { }
         }

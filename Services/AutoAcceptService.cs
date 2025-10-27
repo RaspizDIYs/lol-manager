@@ -543,38 +543,14 @@ public class AutoAcceptService
         }
         catch { }
 
-        // Фоллбек: быстрый перебор стандартных путей
-        string[] candidatePaths = new[]
+        // Фоллбек: используем расширённый поиск сервиса
+        try
         {
-            Path.Combine("C:\\Riot Games", "League of Legends", "lockfile"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "Riot Games", "League of Legends", "lockfile"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                "Riot Games", "League of Legends", "lockfile"),
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Riot Games", "League of Legends", "lockfile")
-        };
-
-        foreach (var path in candidatePaths)
-        {
-            if (!File.Exists(path)) continue;
-            try
-            {
-                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var sr = new StreamReader(fs);
-                var content = await sr.ReadToEndAsync();
-                var parts = content.Split(':');
-                if (parts.Length >= 5)
-                {
-                    _logger.Info($"AutoAccept: Найден lockfile: {path}");
-                    return (int.Parse(parts[2]), parts[3]);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"AutoAccept: Ошибка чтения lockfile {path}: {ex.Message}");
-            }
+            var rc = await _riotClientService.GetLcuAuthAsync();
+            if (rc != null) return rc.Value;
         }
+        catch { }
+
         return null;
     }
 

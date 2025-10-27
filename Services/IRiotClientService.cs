@@ -57,6 +57,16 @@ public interface IRiotClientService
     Task<List<LcuRunePage>> GetRunePagesAsync();
     Task<string?> GetCurrentSummonerNameAsync();
     Task<string> GetCurrentSummonerPuuidAsync();
+
+    /// <summary>
+    /// Пробивает состояние подключения к клиенту (RC/LCU), ищет lockfile в кастомных местах.
+    /// </summary>
+    Task<ClientConnectivityStatus> ProbeConnectivityAsync();
+
+    /// <summary>
+    /// Возвращает кэшированную информацию о запущенном LeagueClientUx (командная строка, путь, порт, токен).
+    /// </summary>
+    Task<LeagueClientInfo?> GetLeagueClientInfoAsync(bool forceRefresh = false);
 }
 
 

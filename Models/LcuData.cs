@@ -19,3 +19,4 @@ public record LcuPerk
     public string iconPath { get; set; } = string.Empty;
     // Важно: остальные поля из LCU намеренно не описываем, чтобы избежать ошибок десериализации при изменении типов
 }
+
