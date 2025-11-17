@@ -1,0 +1,46 @@
+# Альтернатива: запуск через создание GitHub Release
+name: Build on Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Get Release Version
+        id: get-version
+        shell: bash
+        run: |
+          # Убираем 'v' из тега релиза
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION=${VERSION#v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Application
+        run: dotnet publish LolManager.csproj -c Release -o publish -r win-x64 --self-contained true
+
+      - name: Create Velopack Release
+        run: |
+          dotnet tool install -g vpk
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+          
+          if [ "${{ github.event.release.prerelease }}" == "true" ]; then
+            vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel beta
+          else
+            vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel stable
+          fi
+          
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}

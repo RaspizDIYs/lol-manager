@@ -1,0 +1,293 @@
+name: Deploy Releases
+
+on:
+  push:
+    branches:
+      - master
+      - develop
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get Version and Validate
+        id: get-version
+        shell: bash
+        run: |
+          set -e  # Exit on any error
+          
+          # Валидируем что .csproj содержит версию
+          if ! grep -q '<Version>' LolManager.csproj; then
+            echo "❌ ERROR: No <Version> tag found in LolManager.csproj"
+            exit 1
+          fi
+          
+          CURRENT_VERSION=$(grep -oE '<Version>[^<]+' LolManager.csproj | sed 's/<Version>//')
+          echo "Current version in csproj: $CURRENT_VERSION"
+          
+          # Проверяем что версия валидна (формат X.Y.Z или X.Y.Z-beta.XX)
+          if ! [[ "$CURRENT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "❌ ERROR: Invalid version format in csproj: $CURRENT_VERSION (expected: X.Y.Z or X.Y.Z-beta.XX)"
+            exit 1
+          fi
+          
+          if [ "${{ github.ref }}" == "refs/heads/master" ]; then
+            # Для master проверяем что версия изменилась
+            echo "Checking if version was updated for stable release..."
+            
+            # Получаем последний стабильный релиз с обработкой ошибок
+            echo "Fetching latest stable release from GitHub API..."
+            
+            API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases")
+            
+            HTTP_STATUS=$(echo "$API_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_STATUS:/d')
+            
+            if [ "$HTTP_STATUS" != "200" ]; then
+              echo "❌ ERROR: GitHub API request failed with status $HTTP_STATUS"
+              echo "Response: $RESPONSE_BODY"
+              exit 1
+            fi
+            
+            # Проверяем что jq доступен
+            if ! command -v jq &> /dev/null; then
+              echo "❌ ERROR: jq is not installed"
+              exit 1
+            fi
+            
+            LAST_RELEASE=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
+            
+            if [ "$?" != "0" ]; then
+              echo "❌ ERROR: Failed to parse GitHub API response with jq"
+              exit 1
+            fi
+            
+            LAST_VERSION=${LAST_RELEASE#v}
+            echo "Last stable release version: $LAST_VERSION"
+            
+            if [ "$CURRENT_VERSION" == "$LAST_VERSION" ]; then
+              echo "❌ ERROR: Version in csproj ($CURRENT_VERSION) matches last release ($LAST_VERSION)"
+              echo "Please update version in LolManager.csproj before pushing to master"
+              exit 1
+            fi
+            
+            # Проверяем что новая версия больше предыдущей
+            if ! printf '%s\n%s\n' "$LAST_VERSION" "$CURRENT_VERSION" | sort -V -C; then
+              echo "❌ ERROR: New version ($CURRENT_VERSION) is not greater than last version ($LAST_VERSION)"
+              exit 1
+            fi
+            
+            echo "✅ Version check passed: $CURRENT_VERSION > $LAST_VERSION"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            
+          else
+            # Для develop автоматически управляем beta версиями
+            echo "Managing beta version from: $CURRENT_VERSION"
+            
+            # Получаем последний стабильный релиз
+            API_RESPONSE=$(curl -s -w "HTTP_STATUS:%{http_code}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/${{ github.repository }}/releases")
+            
+            HTTP_STATUS=$(echo "$API_RESPONSE" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+            RESPONSE_BODY=$(echo "$API_RESPONSE" | sed '/HTTP_STATUS:/d')
+            
+            if [ "$HTTP_STATUS" == "200" ]; then
+              LATEST_STABLE=$(echo "$RESPONSE_BODY" | jq -r '[.[] | select(.prerelease == false)][0].tag_name // "v0.0.0"')
+              LATEST_STABLE_VERSION=${LATEST_STABLE#v}
+              echo "Latest stable version: $LATEST_STABLE_VERSION"
+            else
+              echo "⚠️ WARNING: Failed to fetch releases, using fallback"
+              LATEST_STABLE_VERSION="0.1.26"
+            fi
+            
+            if [[ "$CURRENT_VERSION" =~ -beta\.[0-9]+$ ]]; then
+              # Текущая версия уже beta - инкрементируем
+              BASE_VERSION=$(echo "$CURRENT_VERSION" | sed 's/-beta\.[0-9]*$//')
+              CURRENT_BETA=$(echo "$CURRENT_VERSION" | grep -oE 'beta\.([0-9]+)' | cut -d. -f2)
+              
+              # Проверяем нужно ли обновить базовую версию до latest stable
+              if [ "$BASE_VERSION" != "$LATEST_STABLE_VERSION" ]; then
+                echo "Updating base version from $BASE_VERSION to $LATEST_STABLE_VERSION"
+                NEW_VERSION="${LATEST_STABLE_VERSION}-beta.1"
+              else
+                NEXT_BETA=$((CURRENT_BETA + 1))
+                NEW_VERSION="${BASE_VERSION}-beta.${NEXT_BETA}"
+              fi
+            else
+              # Текущая версия стабильная - создаем первую beta на базе latest stable
+              echo "Creating first beta for stable version $LATEST_STABLE_VERSION"
+              NEW_VERSION="${LATEST_STABLE_VERSION}-beta.1"
+            fi
+            
+            echo "New version: $NEW_VERSION"
+            
+            # Обновляем версию в .csproj файле  
+            sed -i "s/<Version>${CURRENT_VERSION}<\/Version>/<Version>${NEW_VERSION}<\/Version>/" LolManager.csproj
+            
+            # Коммитим изменения версии с [skip ci] чтобы не запустить workflow снова
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"  
+            git add LolManager.csproj
+            git commit -m "Auto-increment version to ${NEW_VERSION} [skip ci]"
+            git push
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Application
+        shell: bash
+        run: |
+          echo "Publishing .NET application..."
+          dotnet publish LolManager.csproj -c Release -o publish -r win-x64 --self-contained true
+          
+          if [ ! -d "publish" ]; then
+            echo "❌ ERROR: Publish directory not created"
+            exit 1
+          fi
+          
+          if [ ! -f "publish/LolManager.exe" ]; then
+            echo "❌ ERROR: LolManager.exe not found in publish directory"
+            exit 1
+          fi
+          
+          echo "✅ Application published successfully"
+
+      - name: Create Stable Release
+        if: github.ref == 'refs/heads/master'
+        shell: bash
+        run: |
+          echo "Creating stable release v${{ steps.get-version.outputs.version }}..."
+          
+          echo "Installing Velopack CLI..."
+          dotnet tool install -g vpk
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to install vpk tool"
+            exit 1
+          fi
+          
+          echo "Downloading existing releases..."
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "⚠️  WARNING: Failed to download existing releases (this is OK for first release)"
+          fi
+          
+          echo "Packing application..."
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel stable
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to pack application"
+            exit 1
+          fi
+          
+          echo "Uploading release to GitHub..."
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel stable --token ${{ secrets.GITHUB_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to upload release to GitHub"
+            exit 1
+          fi
+          
+          echo "Adding release notes and ensuring stable release settings..."
+          sleep 3
+          
+          # Создаем JSON с русским текстом через printf для правильной кодировки
+          printf '{"body":"## 🎉 Стабильное обновление\\n\\n### ✨ Новые возможности и улучшения:\\n- Повышена стабильность работы приложения\\n- Улучшена производительность и скорость загрузки\\n- Исправлены мелкие недочеты и ошибки\\n- Обновлены компоненты для лучшей совместимости\\n\\n### 🔧 Установка и обновление:\\n- **Новая установка**: Скачайте LolManager-stable-Setup.exe\\n- **Обновление**: Происходит автоматически\\n\\n---\\n💡 *Хотите получать обновления быстрее? Переключитесь на beta канал в настройках!*","prerelease":false,"make_latest":"true"}' > /tmp/stable_release.json
+          
+          curl -X PATCH \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}" \
+            -d @/tmp/stable_release.json
+          
+          echo "✅ Release notes added and stable release properly configured"
+          
+          # Проверяем что stable релиз стал latest
+          sleep 2
+          LATEST_RELEASE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+            jq -r '.tag_name')
+          
+          if [ "$LATEST_RELEASE" = "v${{ steps.get-version.outputs.version }}" ]; then
+            echo "✅ Stable release is latest: $LATEST_RELEASE"
+          fi
+          
+          echo "✅ Stable release created successfully"
+
+      - name: Create Beta Release
+        if: github.ref == 'refs/heads/develop'
+        shell: bash
+        run: |
+          echo "Creating beta release v${{ steps.get-version.outputs.version }}..."
+          
+          echo "Installing Velopack CLI..."
+          dotnet tool install -g vpk
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to install vpk tool"
+            exit 1
+          fi
+          
+          echo "Downloading existing beta releases..."
+          vpk download github --repoUrl https://github.com/${{ github.repository }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
+          if [ "$?" != "0" ]; then
+            echo "⚠️  WARNING: Failed to download existing beta releases (this is OK for first beta release)"
+          fi
+          
+          echo "Packing beta application..."
+          vpk pack -u LolManager -v ${{ steps.get-version.outputs.version }} -p publish --channel beta
+          if [ "$?" != "0" ]; then
+            echo "❌ ERROR: Failed to pack beta application"
+            exit 1
+          fi
+          
+          vpk upload github --repoUrl https://github.com/${{ github.repository }} --publish --releaseName "v${{ steps.get-version.outputs.version }}" --tag v${{ steps.get-version.outputs.version }} --channel beta --token ${{ secrets.GITHUB_TOKEN }}
+          
+          # Сразу после загрузки помечаем как pre-release
+          sleep 5
+          
+          RELEASE_RESPONSE=$(curl -s \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.get-version.outputs.version }}")
+          
+          RELEASE_ID=$(echo "$RELEASE_RESPONSE" | jq -r '.id')
+          
+          if [ "$RELEASE_ID" != "null" ] && [ "$RELEASE_ID" != "" ]; then
+            # Создаем JSON с русским текстом через printf для правильной кодировки  
+            printf '{"body":"## Beta версия - предварительное тестирование\\n\\n### Свежие улучшения:\\n- Добавлены новые функции и возможности\\n- Улучшена работа существующих компонентов\\n- Оптимизирована производительность приложения\\n- Исправления на основе обратной связи пользователей\\n\\n### ⚠️ Важная информация:\\n- Это тестовая версия для раннего доступа\\n- Возможны временные ошибки и недочеты\\n- Помогите улучшить приложение - сообщайте о проблемах!\\n\\n### 🔧 Как получать beta-версии:\\n1. Откройте Настройки в приложении\\n2. Измените Канал обновлений на beta\\n3. Перезапустите и проверьте обновления\\n\\n---\\n✨ *Спасибо за участие в тестировании! Ваша помощь делает приложение лучше.*","prerelease":true,"make_latest":"false"}' > /tmp/beta_release.json
+            
+            curl -s -X PATCH \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/json; charset=utf-8" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID" \
+              -d @/tmp/beta_release.json > /dev/null
+            
+            echo "✅ Beta release marked as pre-release"
+          else
+            echo "❌ ERROR: Could not find release to mark as pre-release"
+            exit 1
+          fi
+          
+          echo "✅ Beta release created successfully"

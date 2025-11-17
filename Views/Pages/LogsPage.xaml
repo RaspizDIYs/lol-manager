@@ -1,0 +1,102 @@
+<UserControl x:Class="LolManager.Views.Pages.LogsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:conv="clr-namespace:LolManager.Converters"
+             mc:Ignorable="d">
+    <UserControl.Resources>
+        <conv:LogTypeConverter x:Key="LogTypeConverter" />
+    </UserControl.Resources>
+    
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Заголовок -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6">
+            <TextBlock Text="Логи приложения" Margin="6,0,0,0" FontWeight="SemiBold"/>
+        </StackPanel>
+        
+        <!-- Фильтры и управление -->
+        <Grid Grid.Row="1" Margin="12,10,12,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Фильтры по типам логов -->
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+                <TextBlock Text="Фильтры:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,15,0"/>
+                <CheckBox Content="🔐 LOGIN" IsChecked="{Binding LogFilters.ShowLogin}" Margin="0,0,15,0" ToolTip="Показать логи входа в систему"/>
+                <CheckBox Content="🌐 HTTP" IsChecked="{Binding LogFilters.ShowHttp}" Margin="0,0,15,0" ToolTip="Показать HTTP запросы"/>
+                <CheckBox Content="🖱️ UI" IsChecked="{Binding LogFilters.ShowUi}" Margin="0,0,15,0" ToolTip="Показать UI события"/>
+                <CheckBox Content="⚙️ PROC" IsChecked="{Binding LogFilters.ShowProcess}" Margin="0,0,15,0" ToolTip="Показать события процессов"/>
+                <CheckBox Content="ℹ️ INFO" IsChecked="{Binding LogFilters.ShowInfo}" Margin="0,0,15,0" ToolTip="Показать информационные сообщения"/>
+                <CheckBox Content="⚠️ WARN" IsChecked="{Binding LogFilters.ShowWarning}" Margin="0,0,15,0" ToolTip="Показать предупреждения"/>
+                <CheckBox Content="❌ ERROR" IsChecked="{Binding LogFilters.ShowError}" Margin="0,0,15,0" ToolTip="Показать ошибки"/>
+            </StackPanel>
+            
+            <!-- Управление логами -->
+            <StackPanel Grid.Row="1" Orientation="Horizontal">
+                <ui:Button Content="Выбрать всё" Command="{Binding SelectAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                <ui:Button Content="Снять всё" Command="{Binding ClearAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
+                <Separator Margin="5,0"/>
+                <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="10,0,10,0"/>
+                <ui:Button Content="Очистить логи" Command="{Binding ClearLogsCommand}" Appearance="Secondary" Margin="0,0,10,0"/>
+                <ui:Button Content="🔄 Обновить" Command="{Binding RefreshLogsCommand}" Appearance="Primary" Margin="0,0,10,0"/>
+            </StackPanel>
+        </Grid>
+        
+        <!-- Список логов -->
+        <ListBox Grid.Row="2" ItemsSource="{Binding FilteredLogLines}" Background="Transparent" BorderThickness="0" SelectionMode="Extended" x:Name="LogListBox" ScrollViewer.CanContentScroll="True">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid>
+                        <TextBlock Text="{Binding}" FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" Margin="4,2"/>
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Padding" Value="2"/>
+                    <Style.Triggers>
+                        <!-- Цветовое кодирование по типам логов -->
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="ERROR">
+                            <Setter Property="Foreground" Value="#FF6B73"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="WARN">
+                            <Setter Property="Foreground" Value="#FFB86C"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="HTTP">
+                            <Setter Property="Foreground" Value="#8BE9FD"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="LOGIN">
+                            <Setter Property="Foreground" Value="#50FA7B"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="UI">
+                            <Setter Property="Foreground" Value="#BD93F9"/>
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding Converter={StaticResource LogTypeConverter}}" Value="PROC">
+                            <Setter Property="Foreground" Value="#F1FA8C"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <ListBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Копировать выбранные" Command="{Binding PlacementTarget.DataContext.CopySelectedLogsWithParamCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" CommandParameter="{Binding PlacementTarget.SelectedItems, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    <Separator/>
+                    <MenuItem Header="Открыть файл" Command="{Binding PlacementTarget.DataContext.OpenLogFileCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    <MenuItem Header="Очистить логи" Command="{Binding PlacementTarget.DataContext.ClearLogsCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                </ContextMenu>
+            </ListBox.ContextMenu>
+        </ListBox>
+    </Grid>
+</UserControl>
+

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "pre-commit: проверяю сборку проекта..."
+
+if ! command -v dotnet >/dev/null 2>&1; then
+  echo "dotnet не найден в PATH. Прерываю коммит." >&2
+  exit 1
+fi
+
+# Восстановление и сборка. Ошибка прервет коммит
+dotnet restore LolManager.csproj >/dev/null
+dotnet build LolManager.csproj -c Release --no-restore
+
+echo "pre-commit: сборка успешна. Продолжаю коммит."
+exit 0
+
+
