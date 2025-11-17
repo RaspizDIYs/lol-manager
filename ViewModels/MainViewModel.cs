@@ -817,8 +817,10 @@ public partial class MainViewModel : ObservableObject
 					ConnectionIssueText = msg;
 
 					// Показываем тост только при изменении сообщения или спустя интервал
-					bool shouldToast = !string.Equals(msg, _lastConnectionIssueToast, StringComparison.Ordinal)
-						|| (DateTime.UtcNow - _lastConnectionIssueAt).TotalSeconds > 6;
+					// НЕ показываем во время процесса логина (смены аккаунта)
+					bool shouldToast = !IsLoggingIn 
+						&& (!string.Equals(msg, _lastConnectionIssueToast, StringComparison.Ordinal)
+						|| (DateTime.UtcNow - _lastConnectionIssueAt).TotalSeconds > 6);
 					if (shouldToast)
 					{
 						_lastConnectionIssueToast = msg;
@@ -965,18 +967,15 @@ public partial class MainViewModel : ObservableObject
             var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
             _logger.Info($"Login requested for {SelectedAccount.Username}");
             
-            LoginStatus = "Выход из текущего аккаунта...";
-            try { await _riotClientService.LogoutAsync(); } catch { }
-            
-            LoginStatus = "Закрытие клиента League of Legends...";
-            try { await _riotClientService.KillLeagueAsync(includeRiotClient: false); } catch { }
-            
-            await Task.Delay(500, _loginCts.Token);
-            
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
             await _riotClientService.LoginAsync(SelectedAccount.Username, password, _loginCts.Token);
             
             LoginStatus = "Готово! Вход выполнен успешно";
+            
+            HasConnectionIssue = false;
+            ConnectionIssueText = string.Empty;
+            _lastConnectionIssueToast = string.Empty;
+            
             await Task.Delay(1500, _loginCts.Token);
             LoginStatus = string.Empty;
         }
