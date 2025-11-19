@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LolManager.Services;
@@ -11,39 +12,78 @@ public class DataDragonService
 {
     private readonly ILogger _logger;
     private readonly HttpClient _httpClient;
-    private string _latestVersion = "15.19.1"; // Default
+    private string _latestVersion = "15.23.1";
+    private readonly SemaphoreSlim _championLoadLock = new(1, 1);
+    private readonly SemaphoreSlim _spellLoadLock = new(1, 1);
+    private readonly SemaphoreSlim _versionLoadLock = new(1, 1);
+    private Dictionary<string, string>? _cachedChampions;
+    private Dictionary<string, string>? _cachedSpells;
+    private bool _versionFetched;
     
     public DataDragonService(ILogger logger)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        _ = EnsureLatestVersionAsync();
+    }
+    
+    private async Task EnsureLatestVersionAsync()
+    {
+        if (_versionFetched) return;
+        
+        await _versionLoadLock.WaitAsync();
+        try
+        {
+            if (_versionFetched) return;
+            
+            var response = await _httpClient.GetStringAsync("https://ddragon.leagueoflegends.com/api/versions.json");
+            using var doc = JsonDocument.Parse(response);
+            var newVersion = doc.RootElement[0].GetString();
+            
+            if (!string.IsNullOrEmpty(newVersion) && newVersion != _latestVersion)
+            {
+                _latestVersion = newVersion;
+                _logger.Info($"DataDragon: Обновлена версия до {_latestVersion}");
+            }
+            else
+            {
+                _logger.Info($"DataDragon: Текущая версия {_latestVersion}");
+            }
+            
+            _versionFetched = true;
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning($"DataDragon: Не удалось получить последнюю версию, используется {_latestVersion}: {ex.Message}");
+            _versionFetched = true;
+        }
+        finally
+        {
+            _versionLoadLock.Release();
+        }
     }
     
     public async Task<string> GetLatestVersionAsync()
     {
-        try
-        {
-            var response = await _httpClient.GetStringAsync("https://ddragon.leagueoflegends.com/api/versions.json");
-            using var doc = JsonDocument.Parse(response);
-            _latestVersion = doc.RootElement[0].GetString() ?? _latestVersion;
-            _logger.Info($"DataDragon: Получена последняя версия: {_latestVersion}");
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"DataDragon: Ошибка получения последней версии: {ex.Message}");
-        }
+        await EnsureLatestVersionAsync();
         return _latestVersion;
     }
 
-    private Dictionary<string, Models.ChampionInfo> _championInfoCache = new(); // Key: display name (ru), Value: ChampionInfo
+    private readonly Dictionary<string, Models.ChampionInfo> _championInfoCache = [];
 
     public async Task<Dictionary<string, string>> GetChampionsAsync()
     {
-        var champions = new Dictionary<string, string>(); // Key: Name, Value: ID (для обратной совместимости)
-        _championInfoCache.Clear();
-        
+        await _championLoadLock.WaitAsync();
         try
         {
+            if (_cachedChampions != null)
+            {
+                return _cachedChampions;
+            }
+
+            Dictionary<string, string> champions = [];
+            _championInfoCache.Clear();
+            
             var version = await GetLatestVersionAsync();
             var url = $"https://ddragon.leagueoflegends.com/cdn/{version}/data/ru_RU/champion.json";
             var response = await _httpClient.GetStringAsync(url);
@@ -81,13 +121,20 @@ public class DataDragonService
                 _championInfoCache[displayName] = info;
                 champions[displayName] = id;
             }
+            
+            _cachedChampions = champions;
             _logger.Info($"DataDragon: Загружено {champions.Count} чемпионов.");
+            return _cachedChampions;
         }
         catch (Exception ex)
         {
             _logger.Error($"DataDragon: Ошибка загрузки чемпионов: {ex.Message}");
+            return [];
         }
-        return champions;
+        finally
+        {
+            _championLoadLock.Release();
+        }
     }
     
     public Models.ChampionInfo? GetChampionInfo(string displayName)
@@ -103,7 +150,7 @@ public class DataDragonService
         return displayName;
     }
     
-    private List<string> GetChampionAliases(string englishName, string displayName)
+    private static List<string> GetChampionAliases(string englishName, string displayName)
     {
         var aliases = new List<string> { englishName.ToLowerInvariant(), displayName.ToLowerInvariant() };
         
@@ -292,7 +339,7 @@ public class DataDragonService
         if (!_championInfoCache.TryGetValue(displayName, out var info))
             return new List<string>();
         
-        var lanes = new List<string>();
+        List<string> lanes = [];
         var tags = info.Tags;
         var name = info.EnglishName;
         
@@ -304,12 +351,7 @@ public class DataDragonService
         }
         
         // JUNGLE
-        if (tags.Contains("Fighter") || tags.Contains("Assassin") || 
-            new[] { "Ivern", "Nidalee", "Kindred", "Lillia", "Graves", "KhaZix", "RekSai", "Elise", 
-                    "Evelynn", "MasterYi", "Shyvana", "Udyr", "Volibear", "Warwick", "Amumu", 
-                    "Sejuani", "Zac", "Rammus", "Nunu", "Hecarim", "JarvanIV", "LeeSin", 
-                    "XinZhao", "Vi", "Nocturne", "Rengar", "Kayn", "Ekko", "Fiddlesticks",
-                    "Viego", "Belveth", "Briar" }.Contains(name))
+        if (tags.Contains("Fighter") || tags.Contains("Assassin") || JungleChampions.Contains(name))
         {
             if (!lanes.Contains("JUNGLE"))
                 lanes.Add("JUNGLE");
@@ -328,51 +370,76 @@ public class DataDragonService
         }
         
         // UTILITY (Support)
-        if (tags.Contains("Support") || 
-            new[] { "Blitzcrank", "Thresh", "Bard", "Rakan", "Pyke", "Nautilus", "Leona", 
-                    "Braum", "TahmKench", "Alistar", "Senna", "Milio", "Renata" }.Contains(name))
+        if (tags.Contains("Support") || SupportChampions.Contains(name))
         {
             lanes.Add("UTILITY");
         }
         
         // Особые случаи
-        if (new[] { "Yasuo", "Yone" }.Contains(name) && !lanes.Contains("BOTTOM"))
+        if (BottomSpecialCases.Contains(name) && !lanes.Contains("BOTTOM"))
             lanes.Add("BOTTOM");
         
         return lanes;
     }
 
-    private Dictionary<string, string> _spellImageMapping = new(); // Key: display name, Value: image filename
+    private readonly Dictionary<string, string> _spellImageMapping = [];
+
+    private static readonly string[] JungleChampions = 
+    [
+        "Ivern", "Nidalee", "Kindred", "Lillia", "Graves", "KhaZix", "RekSai", "Elise",
+        "Evelynn", "MasterYi", "Shyvana", "Udyr", "Volibear", "Warwick", "Amumu",
+        "Sejuani", "Zac", "Rammus", "Nunu", "Hecarim", "JarvanIV", "LeeSin",
+        "XinZhao", "Vi", "Nocturne", "Rengar", "Kayn", "Ekko", "Fiddlesticks",
+        "Viego", "Belveth", "Briar"
+    ];
+
+    private static readonly string[] SupportChampions = 
+    [
+        "Blitzcrank", "Thresh", "Bard", "Rakan", "Pyke", "Nautilus", "Leona",
+        "Braum", "TahmKench", "Alistar", "Senna", "Milio", "Renata"
+    ];
+
+    private static readonly string[] BottomSpecialCases = ["Yasuo", "Yone"];
 
     public async Task<Dictionary<string, string>> GetSummonerSpellsAsync()
     {
-        var spells = new Dictionary<string, string>(); // Key: Name (без префикса Summoner), Value: ID
-        _spellImageMapping.Clear();
-        
+        await _spellLoadLock.WaitAsync();
         try
         {
+            if (_cachedSpells != null)
+            {
+                return _cachedSpells;
+            }
+
+            Dictionary<string, string> spells = [];
+            _spellImageMapping.Clear();
+            
             var version = await GetLatestVersionAsync();
             var url = $"https://ddragon.leagueoflegends.com/cdn/{version}/data/ru_RU/summoner.json";
             var response = await _httpClient.GetStringAsync(url);
             using var doc = JsonDocument.Parse(response);
             foreach (var spell in doc.RootElement.GetProperty("data").EnumerateObject())
             {
-                // Получаем имя файла изображения (например, "SummonerDot.png")
                 var imageFile = spell.Value.GetProperty("image").GetProperty("full").GetString() ?? $"{spell.Name}.png";
-                
-                // Берём русское имя из поля "name"
                 var displayName = spell.Value.GetProperty("name").GetString() ?? spell.Name;
                 
                 spells[displayName] = spell.Value.GetProperty("key").GetString() ?? spell.Name;
-                _spellImageMapping[displayName] = imageFile.Replace(".png", ""); // Сохраняем без .png
+                _spellImageMapping[displayName] = imageFile.Replace(".png", "");
             }
+            
+            _cachedSpells = spells;
             _logger.Info($"DataDragon: Загружено {spells.Count} заклинаний призывателя.");
+            return _cachedSpells;
         }
         catch (Exception ex)
         {
             _logger.Error($"DataDragon: Ошибка загрузки заклинаний призывателя: {ex.Message}");
+            return [];
         }
-        return spells;
+        finally
+        {
+            _spellLoadLock.Release();
+        }
     }
     
     public string GetSummonerSpellImageFileName(string displayName)

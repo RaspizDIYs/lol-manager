@@ -434,9 +434,6 @@ public partial class MainViewModel : ObservableObject
 		
 		// Автоматическая проверка обновлений
 		_ = Task.Run(async () => await CheckForUpdatesAsync());
-
-		// Периодический опрос статуса клиента
-		_ = Task.Run(async () => await ConnectivityLoopAsync());
 	}
 
 	[RelayCommand]
@@ -765,10 +762,25 @@ public partial class MainViewModel : ObservableObject
 
 	private System.Threading.CancellationTokenSource? _connectivityCts;
 
-	private async Task ConnectivityLoopAsync()
+	private void EnsureConnectivityLoop()
 	{
+		if (_connectivityCts != null) return;
 		_connectivityCts = new System.Threading.CancellationTokenSource();
 		var token = _connectivityCts.Token;
+		_ = Task.Run(async () => await ConnectivityLoopAsync(token));
+	}
+
+	private void StopConnectivityLoop()
+	{
+		var cts = _connectivityCts;
+		_connectivityCts = null;
+		if (cts == null) return;
+		try { cts.Cancel(); } catch { }
+		try { cts.Dispose(); } catch { }
+	}
+
+	private async Task ConnectivityLoopAsync(System.Threading.CancellationToken token)
+	{
 		while (!token.IsCancellationRequested)
 		{
 			try
@@ -968,6 +980,7 @@ public partial class MainViewModel : ObservableObject
     {
         if (SelectedAccount is null) return;
         
+		EnsureConnectivityLoop();
         IsLoggingIn = true;
         LoginStatus = "Подготовка к входу...";
         _loginCts?.Cancel();
@@ -1007,6 +1020,7 @@ public partial class MainViewModel : ObservableObject
         finally
         {
             IsLoggingIn = false;
+			StopConnectivityLoop();
             _loginCts?.Dispose();
             _loginCts = null;
         }
@@ -1015,7 +1029,8 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void CancelLogin()
     {
-        try { _loginCts?.Cancel(); } catch { }
+		try { _loginCts?.Cancel(); } catch { }
+		StopConnectivityLoop();
     }
 
     [RelayCommand]

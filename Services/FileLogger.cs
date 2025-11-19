@@ -71,8 +71,18 @@ public class FileLogger : ILogger
                     System.IO.File.WriteAllText(_logFile, string.Empty, Encoding.UTF8);
                 }
             }
-            catch { }
-            File.AppendAllText(_logFile, logEntry + "\r\n", Encoding.UTF8);
+            catch
+            {
+            }
+
+            try
+            {
+                File.AppendAllText(_logFile, logEntry + "\r\n", Encoding.UTF8);
+            }
+            catch
+            {
+                // Логгер не должен ронять приложение
+            }
         }
     }
 

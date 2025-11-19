@@ -71,9 +71,40 @@ public class AccountsStorage : IAccountsStorage
         var fileInfo = new FileInfo(_dataFilePath);
         if (_cachedAccounts == null || fileInfo.LastWriteTime > _lastFileRead)
         {
-            var json = File.ReadAllText(_dataFilePath);
-            _cachedAccounts = JsonConvert.DeserializeObject<List<AccountRecord>>(json) ?? new List<AccountRecord>();
-            _lastFileRead = fileInfo.LastWriteTime;
+            try
+            {
+                var json = File.ReadAllText(_dataFilePath);
+                _cachedAccounts = JsonConvert.DeserializeObject<List<AccountRecord>>(json) ?? new List<AccountRecord>();
+                _lastFileRead = fileInfo.LastWriteTime;
+            }
+            catch (Exception ex)
+            {
+                _logger?.Error($"Failed to read accounts file: {ex.Message}");
+                
+                // Пытаемся восстановиться из backup
+                try
+                {
+                    var backupPath = _dataFilePath + ".bak";
+                    if (File.Exists(backupPath))
+                    {
+                        var backupJson = File.ReadAllText(backupPath);
+                        _cachedAccounts = JsonConvert.DeserializeObject<List<AccountRecord>>(backupJson) ?? new List<AccountRecord>();
+                        _lastFileRead = DateTime.Now;
+                        _logger?.Info("Accounts restored from backup");
+                    }
+                    else
+                    {
+                        _cachedAccounts = new List<AccountRecord>();
+                        _lastFileRead = DateTime.Now;
+                    }
+                }
+                catch (Exception backupEx)
+                {
+                    _logger?.Error($"Failed to restore accounts from backup: {backupEx.Message}");
+                    _cachedAccounts = new List<AccountRecord>();
+                    _lastFileRead = DateTime.Now;
+                }
+            }
         }
         
         return _cachedAccounts.OrderBy(a => a.Username);
@@ -81,32 +112,48 @@ public class AccountsStorage : IAccountsStorage
 
     public void Save(AccountRecord account)
     {
-        var list = LoadAll().ToList();
-        var existingIdx = list.FindIndex(a => string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
-        if (existingIdx >= 0) list[existingIdx] = account; else list.Add(account);
-        
-        // Создаем backup перед сохранением
-        if (File.Exists(_dataFilePath))
+        try
         {
-            var backupPath = _dataFilePath + ".bak";
-            File.Copy(_dataFilePath, backupPath, overwrite: true);
+            var list = LoadAll().ToList();
+            var existingIdx = list.FindIndex(a => string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
+            if (existingIdx >= 0) list[existingIdx] = account; else list.Add(account);
+            
+            // Создаем backup перед сохранением
+            if (File.Exists(_dataFilePath))
+            {
+                var backupPath = _dataFilePath + ".bak";
+                File.Copy(_dataFilePath, backupPath, overwrite: true);
+            }
+            
+            File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
+            
+            // Обновляем кеш
+            _cachedAccounts = list;
+            _lastFileRead = DateTime.Now;
         }
-        
-        File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
-        
-        // Обновляем кеш
-        _cachedAccounts = list;
-        _lastFileRead = DateTime.Now;
+        catch (Exception ex)
+        {
+            _logger?.Error($"Failed to save accounts: {ex.Message}");
+        }
     }
 
     public void Delete(string username)
     {
-        var list = LoadAll().Where(a => !string.Equals(a.Username, username, StringComparison.OrdinalIgnoreCase)).ToList();
-        File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
-        
-        // Обновляем кеш
-        _cachedAccounts = list;
-        _lastFileRead = DateTime.Now;
+        try
+        {
+            var list = LoadAll()
+                .Where(a => !string.Equals(a.Username, username, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
+            
+            // Обновляем кеш
+            _cachedAccounts = list;
+            _lastFileRead = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"Failed to delete account '{username}': {ex.Message}");
+        }
     }
 
     public string Protect(string plain)

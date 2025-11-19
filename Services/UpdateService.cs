@@ -1201,7 +1201,7 @@ public class UpdateService : IUpdateService
         catch { }
     }
 
-    private async Task OpenReleasesPage()
+    private Task OpenReleasesPage()
     {
         try
         {
@@ -1220,6 +1220,8 @@ public class UpdateService : IUpdateService
         {
             _logger.Error($"Failed to open releases page: {ex.Message}");
         }
+        
+        return Task.CompletedTask;
     }
 
     private async Task<string?> GetChangelogFromAtomAsync(string channel)

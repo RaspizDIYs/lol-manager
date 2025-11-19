@@ -40,6 +40,8 @@ public class AutoAcceptService
     private static readonly Regex _timerRegex = new("\"timer\":([\\d.]+)", RegexOptions.Compiled);
     private int _settingsVersion;
     private DateTime _lastEnsureCheck = DateTime.MinValue;
+    private Dictionary<string, int>? _championNameToIdCache;
+    private Dictionary<string, int>? _spellNameToIdCache;
     
     private AutoAcceptMethod CurrentMethod => AutoAcceptMethodExtensions.Parse(_automationSettings?.AutoAcceptMethod);
     private bool IsMethodWebSocket => CurrentMethod == AutoAcceptMethod.WebSocket || CurrentMethod == AutoAcceptMethod.Auto;
@@ -75,6 +77,9 @@ public class AutoAcceptService
         _automationSettings = settings;
         Interlocked.Increment(ref _settingsVersion);
         ResetChampSelectState();
+        
+        _championNameToIdCache = null;
+        _spellNameToIdCache = null;
         
         if (settings != null && settings.IsEnabled)
         {
@@ -661,91 +666,9 @@ public class AutoAcceptService
         {
             if (Interlocked.CompareExchange(ref _hasSetSummonerSpells, 1, 0) == 0)
             {
-                // Небольшая задержка чтобы дать время на загрузку чемпион селекта
                 await Task.Delay(500);
                 await SetSummonerSpellsAsync(port, password);
             }
-        }
-
-        // Применяем страницу рун, если выбрана в настройках и ещё не применялась
-        try
-        {
-            var settings = _automationSettings;
-            if (settings == null) return;
-
-            // 1. Устанавливаем spell1
-            if (!string.IsNullOrWhiteSpace(settings.SummonerSpell1))
-            {
-                try
-                {
-                    var spell1Id = await GetSummonerSpellIdByNameAsync(settings.SummonerSpell1);
-                    if (spell1Id > 0)
-                    {
-                        var content1 = new StringContent(
-                            $"{{\"spell1Id\":{spell1Id}}}",
-                            Encoding.UTF8,
-                            "application/json"
-                        );
-                        var response1 = await CreateHttpClient(port, password).PatchAsync("/lol-champ-select/v1/session/my-selection", content1);
-                        
-                        if (response1.IsSuccessStatusCode)
-                        {
-                            _logger.Info($"✓ Spell 1 установлен: {settings.SummonerSpell1}");
-                        }
-                        else
-                        {
-                            _logger.Warning($"Не удалось установить spell 1: {response1.StatusCode}");
-                        }
-                    }
-                    else
-                    {
-                        _logger.Warning($"Не удалось найти ID заклинания: {settings.SummonerSpell1}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Ошибка установки spell 1: {ex.Message}");
-                }
-            }
-            
-            // 2. Устанавливаем spell2
-            if (!string.IsNullOrWhiteSpace(settings.SummonerSpell2))
-            {
-                try
-                {
-                    var spell2Id = await GetSummonerSpellIdByNameAsync(settings.SummonerSpell2);
-                    if (spell2Id > 0)
-                    {
-                        var content2 = new StringContent(
-                            $"{{\"spell2Id\":{spell2Id}}}",
-                            Encoding.UTF8,
-                            "application/json"
-                        );
-                        var response2 = await CreateHttpClient(port, password).PatchAsync("/lol-champ-select/v1/session/my-selection", content2);
-                        
-                        if (response2.IsSuccessStatusCode)
-                        {
-                            _logger.Info($"✓ Spell 2 установлен: {settings.SummonerSpell2}");
-                        }
-                        else
-                        {
-                            _logger.Warning($"Не удалось установить spell 2: {response2.StatusCode}");
-                        }
-                    }
-                    else
-                    {
-                        _logger.Warning($"Не удалось найти ID заклинания: {settings.SummonerSpell2}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error($"Ошибка установки spell 2: {ex.Message}");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"[AutoAccept] Failed to set summoner spells: {ex.Message}");
         }
 
         // 5. Устанавливаем руны
@@ -812,14 +735,13 @@ public class AutoAcceptService
             
             _logger.Info($"🔍 Найден ID чемпиона: {championName} = {championId}");
             
-            // Опциональная задержка перед пиком
             try
             {
                 var delayActive = _automationSettings?.IsPickDelayEnabled == true;
                 var delaySec = Math.Clamp(_automationSettings?.PickDelaySeconds ?? 0, 0, 30);
                 if (delayActive && delaySec > 0)
                 {
-                    _logger.Info($"⏳ Задержка перед пиком: {delaySec}s");
+                    _logger.Info($"⏳ Задержка перед баном: {delaySec}s");
                     await Task.Delay(TimeSpan.FromSeconds(delaySec));
                 }
             }
@@ -862,6 +784,18 @@ public class AutoAcceptService
             }
             
             _logger.Info($"🔍 Найден ID чемпиона: {championName} = {championId}");
+            
+            try
+            {
+                var delayActive = _automationSettings?.IsPickDelayEnabled == true;
+                var delaySec = Math.Clamp(_automationSettings?.PickDelaySeconds ?? 0, 0, 30);
+                if (delayActive && delaySec > 0)
+                {
+                    _logger.Info($"⏳ Задержка перед пиком: {delaySec}s");
+                    await Task.Delay(TimeSpan.FromSeconds(delaySec));
+                }
+            }
+            catch { }
             
             using var client = CreateHttpClient(port, password);
             var content = new StringContent(
@@ -1060,12 +994,26 @@ public class AutoAcceptService
     {
         try
         {
-            var champions = await _dataDragonService.GetChampionsAsync();
-            if (champions.TryGetValue(displayName, out var idStr) && int.TryParse(idStr, out var id))
+            if (_championNameToIdCache == null)
             {
-                return id;
+                var champions = await _dataDragonService.GetChampionsAsync();
+                _championNameToIdCache = new Dictionary<string, int>();
+                foreach (var kvp in champions)
+                {
+                    if (int.TryParse(kvp.Value, out var id))
+                    {
+                        _championNameToIdCache[kvp.Key] = id;
+                    }
+                }
+                _logger.Info($"Кеш чемпионов загружен: {_championNameToIdCache.Count} записей");
             }
-            _logger.Warning($"Чемпион '{displayName}' не найден в Data Dragon");
+
+            if (_championNameToIdCache.TryGetValue(displayName, out var cachedId))
+            {
+                return cachedId;
+            }
+            
+            _logger.Warning($"Чемпион '{displayName}' не найден в кеше");
             return -1;
         }
         catch (Exception ex)
@@ -1081,12 +1029,26 @@ public class AutoAcceptService
         
         try
         {
-            var spells = await _dataDragonService.GetSummonerSpellsAsync();
-            if (spells.TryGetValue(displayName, out var idStr) && int.TryParse(idStr, out var id))
+            if (_spellNameToIdCache == null)
             {
-                return id;
+                var spells = await _dataDragonService.GetSummonerSpellsAsync();
+                _spellNameToIdCache = new Dictionary<string, int>();
+                foreach (var kvp in spells)
+                {
+                    if (int.TryParse(kvp.Value, out var id))
+                    {
+                        _spellNameToIdCache[kvp.Key] = id;
+                    }
+                }
+                _logger.Info($"Кеш заклинаний загружен: {_spellNameToIdCache.Count} записей");
             }
-            _logger.Warning($"Заклинание '{displayName}' не найдено в Data Dragon");
+
+            if (_spellNameToIdCache.TryGetValue(displayName, out var cachedId))
+            {
+                return cachedId;
+            }
+            
+            _logger.Warning($"Заклинание '{displayName}' не найдено в кеше");
             return 0;
         }
         catch (Exception ex)

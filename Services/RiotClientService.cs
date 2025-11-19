@@ -130,7 +130,10 @@ public partial class RiotClientService : IRiotClientService
             await Task.Delay(500, externalToken);
         }
         // 2c) Запустить прогрев RSO в фоне
-        _ = Task.Run(async () => { try { await WarmUpRsoAsync(); } catch { } });
+        _ = Task.Run(async () =>
+        {
+            try { await WarmUpRsoAsync(externalToken); } catch { }
+        }, externalToken);
 
         // 3) Немедленно попытаться UIA-ввод (как только появится окно/DOM)
         sw.Restart();
@@ -1712,7 +1715,7 @@ public partial class RiotClientService : IRiotClientService
         return false;
     }
 
-    private async Task WarmUpRsoAsync()
+    private async Task WarmUpRsoAsync(System.Threading.CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1735,8 +1738,23 @@ public partial class RiotClientService : IRiotClientService
                 responseType = "token id_token",
                 scope = "openid offline_access lol ban profile link"
             };
-            try { var r1 = await rcClient.PostAsync("/rso-auth/v1/authorization", JsonContent(initV1)); await LogResponse("RC POST /rso-auth/v1/authorization [warm]", r1); } catch { }
-            try { var r3 = await rcClient.PostAsync("/rso-auth/v3/authorization", JsonContent(initV3)); await LogResponse("RC POST /rso-auth/v3/authorization [warm]", r3); } catch { }
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var r1 = await rcClient.PostAsync("/rso-auth/v1/authorization", JsonContent(initV1), cancellationToken);
+                await LogResponse("RC POST /rso-auth/v1/authorization [warm]", r1);
+            }
+            catch (OperationCanceledException) { return; }
+            catch { }
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var r3 = await rcClient.PostAsync("/rso-auth/v3/authorization", JsonContent(initV3), cancellationToken);
+                await LogResponse("RC POST /rso-auth/v3/authorization [warm]", r3);
+            }
+            catch (OperationCanceledException) { return; }
+            catch { }
         }
         catch { }
     }

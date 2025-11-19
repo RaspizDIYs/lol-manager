@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using LolManager.Models;
 using System.IO;
 
@@ -37,7 +38,10 @@ public class SettingsService : ISettingsService
                 return settings ?? new UpdateSettings();
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SettingsService: failed to load update settings: {ex}");
+        }
         
         return new UpdateSettings();
     }
@@ -56,7 +60,10 @@ public class SettingsService : ISettingsService
             });
             File.WriteAllText(updateSettingsPath, json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SettingsService: failed to save update settings: {ex}");
+        }
     }
 
     public T LoadSetting<T>(string key, T defaultValue)
@@ -81,7 +88,10 @@ public class SettingsService : ISettingsService
                 var json = JsonSerializer.Serialize(value);
                 return JsonSerializer.Deserialize<T>(json) ?? defaultValue;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SettingsService: failed to deserialize setting '{key}': {ex}");
+            }
         }
         return defaultValue;
     }
@@ -103,7 +113,10 @@ public class SettingsService : ISettingsService
                 return settings ?? new Dictionary<string, object>();
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SettingsService: failed to load settings: {ex}");
+        }
         
         return new Dictionary<string, object>();
     }
@@ -118,6 +131,9 @@ public class SettingsService : ISettingsService
             });
             File.WriteAllText(_configPath, json);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"SettingsService: failed to save settings: {ex}");
+        }
     }
 }
