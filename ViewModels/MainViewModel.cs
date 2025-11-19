@@ -98,7 +98,7 @@ public partial class MainViewModel : ObservableObject
 	private List<string> updateChannels = new() { "stable", "beta" };
 
 	[ObservableProperty]
-	private List<string> updateModes = new() { "Direct", "Velopack" };
+	private List<string> updateModes = new() { "Velopack", "Direct" };
 
 	[ObservableProperty]
 	private bool hasConnectionIssue = false;

@@ -12,7 +12,7 @@ public class UpdateSettings : INotifyPropertyChanged
     private bool _skipVersion = false;
     private string _skippedVersion = string.Empty;
     private string _githubToken = string.Empty;
-    private string _updateMode = "Direct"; // Direct | Velopack
+    private string _updateMode = "Velopack"; // Direct | Velopack
 
     public bool AutoUpdateEnabled
     {

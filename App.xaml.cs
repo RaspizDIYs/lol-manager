@@ -78,6 +78,11 @@ public partial class App : Application
     
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Velopack должен быть самым первым!
+        // Он обрабатывает установку, удаление, перезапуск и создание ярлыков.
+        VelopackApp.Build()
+            .Run();
+
         const string mutexName = "LolManager_SingleInstance_Mutex";
         const string eventName = "LolManager_ShowWindow_Event";
         
@@ -120,12 +125,6 @@ public partial class App : Application
         };
         _ipcThread.Start();
         
-        try
-        {
-            VelopackApp.Build().Run();
-        }
-        catch { }
-        
         // Регистрация сервисов
         RegisterServices();
         
@@ -135,6 +134,10 @@ public partial class App : Application
         InitializeTrayIcon();
         
         base.OnStartup(e);
+
+        // Явное создание главного окна (так как убрали StartupUri)
+        MainWindow = new Views.MainWindow();
+        MainWindow.Show();
         
         // Автоматическая проверка обновлений при запуске (без ожидания)
         _ = CheckForUpdatesOnStartupAsync();
