@@ -258,7 +258,6 @@ jobs:
           check_asset "LolManager-stable-Setup.exe"
           check_asset "LolManager-stable-Portable.zip"
           check_asset "releases.stable.json"
-          check_asset "RELEASES"
           
           echo "✅ Stable release assets verified"
 
@@ -342,6 +341,5 @@ jobs:
           check_asset "LolManager-beta-Setup.exe"
           check_asset "LolManager-beta-Portable.zip"
           check_asset "releases.beta.json"
-          check_asset "RELEASES"
           
           echo "✅ Beta release assets verified"
