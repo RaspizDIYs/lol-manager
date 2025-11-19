@@ -128,10 +128,16 @@ public class AccountsStorage : IAccountsStorage
     public void ExportAccounts(string filePath, IEnumerable<AccountRecord>? selectedAccounts = null)
     {
         var accountsToExport = selectedAccounts ?? LoadAll();
-        ExportAccountsEncrypted(filePath, accountsToExport);
+        ExportAccountsEncrypted(filePath, accountsToExport, null);
     }
 
-    private void ExportAccountsEncrypted(string filePath, IEnumerable<AccountRecord> accounts)
+    public void ExportAccounts(string filePath, string password, IEnumerable<AccountRecord>? selectedAccounts = null)
+    {
+        var accountsToExport = selectedAccounts ?? LoadAll();
+        ExportAccountsEncrypted(filePath, accountsToExport, password);
+    }
+
+    private void ExportAccountsEncrypted(string filePath, IEnumerable<AccountRecord> accounts, string? password)
     {
         var exportAccounts = accounts.Select(acc => new ExportAccountRecord
         {
@@ -141,24 +147,40 @@ public class AccountsStorage : IAccountsStorage
             CreatedAt = acc.CreatedAt
         }).ToList();
 
-        // Генерируем соль для шифрования
-        var salt = GenerateRandomSalt();
-        
-        // Сериализуем аккаунты в JSON
         var accountsJson = JsonConvert.SerializeObject(exportAccounts, Formatting.Indented);
         
-        // Шифруем данные
-        var encryptedAccounts = EncryptData(accountsJson, salt);
+        EncryptedExportData exportData;
         
-        // Создаем контейнер экспорта
-        var exportData = new EncryptedExportData
+        if (!string.IsNullOrEmpty(password))
         {
-            Version = 2,
-            AppName = "LolManager",
-            ExportedAt = DateTime.UtcNow,
-            EncryptedAccounts = encryptedAccounts,
-            Salt = Convert.ToBase64String(salt)
-        };
+            var salt = GenerateRandomSalt();
+            var iv = GenerateRandomIV();
+            var encryptedAccounts = EncryptDataAes(accountsJson, password, salt, iv);
+            
+            exportData = new EncryptedExportData
+            {
+                Version = 3,
+                AppName = "LolManager",
+                ExportedAt = DateTime.UtcNow,
+                EncryptedAccounts = encryptedAccounts,
+                Salt = Convert.ToBase64String(salt),
+                IV = Convert.ToBase64String(iv)
+            };
+        }
+        else
+        {
+            var salt = GenerateRandomSalt();
+            var encryptedAccounts = EncryptDataLegacy(accountsJson, salt);
+            
+            exportData = new EncryptedExportData
+            {
+                Version = 2,
+                AppName = "LolManager",
+                ExportedAt = DateTime.UtcNow,
+                EncryptedAccounts = encryptedAccounts,
+                Salt = Convert.ToBase64String(salt)
+            };
+        }
         
         var finalJson = JsonConvert.SerializeObject(exportData, Formatting.Indented);
         File.WriteAllText(filePath, finalJson, Encoding.UTF8);
@@ -166,17 +188,70 @@ public class AccountsStorage : IAccountsStorage
 
     private byte[] GenerateRandomSalt()
     {
-        var salt = new byte[32]; // 256 bit salt
+        var salt = new byte[32];
         using var rng = RandomNumberGenerator.Create();
         rng.GetBytes(salt);
         return salt;
     }
 
-    private string EncryptData(string data, byte[] salt)
+    private byte[] GenerateRandomIV()
+    {
+        var iv = new byte[16];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(iv);
+        return iv;
+    }
+
+    private string EncryptDataAes(string data, string password, byte[] salt, byte[] iv)
     {
         var dataBytes = Encoding.UTF8.GetBytes(data);
         
-        // Используем тот же подход что и для паролей, но с солью
+        using var aes = Aes.Create();
+        aes.KeySize = 256;
+        aes.BlockSize = 128;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        aes.IV = iv;
+        
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100000, HashAlgorithmName.SHA256);
+        aes.Key = pbkdf2.GetBytes(32);
+        
+        using var encryptor = aes.CreateEncryptor();
+        using var msEncrypt = new MemoryStream();
+        using (var csEncrypt = new CryptoStream(msEncrypt, encryptor, CryptoStreamMode.Write))
+        {
+            csEncrypt.Write(dataBytes, 0, dataBytes.Length);
+        }
+        
+        return Convert.ToBase64String(msEncrypt.ToArray());
+    }
+
+    private string DecryptDataAes(string encryptedData, string password, byte[] salt, byte[] iv)
+    {
+        var encryptedBytes = Convert.FromBase64String(encryptedData);
+        
+        using var aes = Aes.Create();
+        aes.KeySize = 256;
+        aes.BlockSize = 128;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+        aes.IV = iv;
+        
+        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100000, HashAlgorithmName.SHA256);
+        aes.Key = pbkdf2.GetBytes(32);
+        
+        using var decryptor = aes.CreateDecryptor();
+        using var msDecrypt = new MemoryStream(encryptedBytes);
+        using var csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read);
+        using var srDecrypt = new StreamReader(csDecrypt, Encoding.UTF8);
+        
+        return srDecrypt.ReadToEnd();
+    }
+
+    private string EncryptDataLegacy(string data, byte[] salt)
+    {
+        var dataBytes = Encoding.UTF8.GetBytes(data);
+        
         var saltedData = new byte[salt.Length + dataBytes.Length];
         Array.Copy(salt, 0, saltedData, 0, salt.Length);
         Array.Copy(dataBytes, 0, saltedData, salt.Length, dataBytes.Length);
@@ -185,12 +260,11 @@ public class AccountsStorage : IAccountsStorage
         return Convert.ToBase64String(encryptedBytes);
     }
 
-    private string DecryptData(string encryptedData, byte[] salt)
+    private string DecryptDataLegacy(string encryptedData, byte[] salt)
     {
         var encryptedBytes = Convert.FromBase64String(encryptedData);
         var decryptedBytes = ProtectedData.Unprotect(encryptedBytes, optionalEntropy: salt, scope: DataProtectionScope.CurrentUser);
         
-        // Убираем соль из начала
         var dataBytes = new byte[decryptedBytes.Length - salt.Length];
         Array.Copy(decryptedBytes, salt.Length, dataBytes, 0, dataBytes.Length);
         
@@ -198,6 +272,11 @@ public class AccountsStorage : IAccountsStorage
     }
 
     public void ImportAccounts(string filePath)
+    {
+        ImportAccounts(filePath, null);
+    }
+
+    public void ImportAccounts(string filePath, string? password)
     {        
         if (!File.Exists(filePath))
         {
@@ -213,7 +292,7 @@ public class AccountsStorage : IAccountsStorage
                 throw new InvalidOperationException("Файл импорта пуст");
             }
             
-            var importAccounts = ParseImportFile(json);
+            var importAccounts = ParseImportFile(json, password);
             
             if (importAccounts == null || !importAccounts.Any())
             {
@@ -249,7 +328,6 @@ public class AccountsStorage : IAccountsStorage
                 }
             }
             
-            // Создаем backup
             if (File.Exists(_dataFilePath))
             {
                 var backupPath = _dataFilePath + ".bak";
@@ -270,7 +348,7 @@ public class AccountsStorage : IAccountsStorage
         }
     }
 
-    private List<ExportAccountRecord>? ParseImportFile(string json)
+    private List<ExportAccountRecord>? ParseImportFile(string json, string? password)
     {
         try
         {
@@ -278,10 +356,9 @@ public class AccountsStorage : IAccountsStorage
             
             if (jsonToken is JObject jsonObj)
             {
-                // Проверяем есть ли поле Version - зашифрованный формат
                 if (jsonObj.ContainsKey("Version") && jsonObj.ContainsKey("EncryptedAccounts"))
                 {
-                    return ParseEncryptedFormat(jsonObj);
+                    return ParseEncryptedFormat(jsonObj, password);
                 }
                 else
                 {
@@ -294,14 +371,12 @@ public class AccountsStorage : IAccountsStorage
                 {
                     var firstItem = jsonArray[0];
                     
-                    // Проверяем наличие поля Note - новый нешифрованный формат
                     if (firstItem["Note"] != null)
                     {
                         return JsonConvert.DeserializeObject<List<ExportAccountRecord>>(json);
                     }
                     else
                     {
-                        // Старый формат без Note
                         var legacyAccounts = JsonConvert.DeserializeObject<List<LegacyExportAccountRecord>>(json);
                         return legacyAccounts?.Select(legacy => new ExportAccountRecord
                         {
@@ -328,7 +403,7 @@ public class AccountsStorage : IAccountsStorage
         }
     }
 
-    private List<ExportAccountRecord>? ParseEncryptedFormat(JObject jsonObj)
+    private List<ExportAccountRecord>? ParseEncryptedFormat(JObject jsonObj, string? password)
     {
         try
         {
@@ -338,25 +413,47 @@ public class AccountsStorage : IAccountsStorage
                 return null;
             }
             
-            if (exportData.Version != 2)
-            {
-                throw new InvalidOperationException($"Неподдерживаемая версия зашифрованного файла: {exportData.Version}");
-            }
-            
             if (string.IsNullOrEmpty(exportData.EncryptedAccounts) || string.IsNullOrEmpty(exportData.Salt))
             {
                 throw new InvalidOperationException("Поврежденный зашифрованный файл");
             }
             
-            // Расшифровываем данные
             var salt = Convert.FromBase64String(exportData.Salt);
-            var decryptedJson = DecryptData(exportData.EncryptedAccounts, salt);
+            string decryptedJson;
+            
+            if (exportData.Version == 3)
+            {
+                if (string.IsNullOrEmpty(password))
+                {
+                    throw new InvalidOperationException("Для расшифровки файла версии 3 требуется пароль");
+                }
+                
+                if (string.IsNullOrEmpty(exportData.IV))
+                {
+                    throw new InvalidOperationException("Поврежденный зашифрованный файл: отсутствует IV");
+                }
+                
+                var iv = Convert.FromBase64String(exportData.IV);
+                decryptedJson = DecryptDataAes(exportData.EncryptedAccounts, password, salt, iv);
+            }
+            else if (exportData.Version == 2)
+            {
+                decryptedJson = DecryptDataLegacy(exportData.EncryptedAccounts, salt);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Неподдерживаемая версия зашифрованного файла: {exportData.Version}");
+            }
             
             return JsonConvert.DeserializeObject<List<ExportAccountRecord>>(decryptedJson);
         }
+        catch (CryptographicException)
+        {
+            throw new InvalidOperationException("Неверный пароль или поврежденный файл");
+        }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Не удалось расшифровать файл. Возможно он поврежден или создан на другом компьютере: {ex.Message}");
+            throw new InvalidOperationException($"Не удалось расшифровать файл: {ex.Message}");
         }
     }
 }

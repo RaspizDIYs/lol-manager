@@ -35,7 +35,6 @@ public class AccountRecord : INotifyPropertyChanged
     }
 }
 
-// Новый формат шифрованного экспорта
 public class EncryptedExportData
 {
     public int Version { get; set; } = 2;
@@ -43,6 +42,7 @@ public class EncryptedExportData
     public DateTime ExportedAt { get; set; } = DateTime.UtcNow;
     public string EncryptedAccounts { get; set; } = string.Empty;
     public string Salt { get; set; } = string.Empty;
+    public string? IV { get; set; }
 }
 
 // Внутренняя структура для шифрования

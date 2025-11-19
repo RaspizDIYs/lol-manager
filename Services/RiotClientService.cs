@@ -85,26 +85,41 @@ public partial class RiotClientService : IRiotClientService
         // 1b) Убедиться, что RC lockfile готов
         await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6), externalToken);
         
-        // 2) Проверить, уже ли выполнен вход - если да, выйти
-        _logger.LoginFlow("Checking if already logged in", "Before login attempt");
+        // 2) Всегда делаем logout и закрываем League перед входом (кроме холодного старта)
+        _logger.LoginFlow("Checking current state", "Before login attempt");
         bool wasAlreadyLoggedIn = await IsRsoAuthorizedAsync();
-        if (wasAlreadyLoggedIn)
+        bool isLeagueRunning = IsLeagueProcessRunning();
+        
+        _logger.Info($"State check: isAuthorized={wasAlreadyLoggedIn}, isLeagueRunning={isLeagueRunning}");
+        
+        // ВСЕГДА делаем logout/cleanup, если RC был запущен (не холодный старт)
+        if (!coldStart)
         {
-            _logger.LoginFlow("Already logged in, logging out first", "Ensuring clean state");
+            _logger.LoginFlow("Account switch mode", "Cleaning up before login");
             try 
             { 
-                await LogoutAsync(); 
-                _logger.LoginFlow("Logout completed", "Ready for new login");
-                await Task.Delay(1500);
+                // Всегда закрываем League если он запущен
+                _logger.LoginFlow("Closing League client", "Ensuring clean state");
+                await KillLeagueAsync(includeRiotClient: false);
+                await Task.Delay(1500, externalToken);
+                
+                // Всегда делаем logout из RC
+                _logger.LoginFlow("Logging out from Riot Client", "Ensuring clean state");
+                await LogoutAsync(includeLcu: false);
+                await Task.Delay(2000, externalToken);
+                
+                _logger.LoginFlow("Activating Riot Client window", "Ready for new login");
+                await EnsureRiotClientWindowVisible();
+                await Task.Delay(500, externalToken);
             } 
             catch (Exception ex) 
             { 
-                _logger.Warning($"Logout failed: {ex.Message}"); 
+                _logger.Warning($"Account switch failed: {ex.Message}"); 
             }
         }
         else
         {
-            _logger.LoginFlow("Not logged in", "Proceeding with login");
+            _logger.LoginFlow("Cold start", "No cleanup needed");
         }
         
         // 2b) Если холодный старт — минимальная пауза для готовности
@@ -898,17 +913,38 @@ public partial class RiotClientService : IRiotClientService
         try
         {
             var names = includeRiotClient
-                ? new[] { "LeagueClientUx", "LeagueClient", "RiotClientUx", "RiotClientUxRender", "RiotClientServices" }
-                : new[] { "LeagueClientUx", "LeagueClient" };
+                ? new[] { "LeagueClientUx", "LeagueClientUxRender", "LeagueClient", "League of Legends", "RiotClientUx", "RiotClientUxRender", "RiotClientServices", "Riot Client" }
+                : new[] { "LeagueClientUx", "LeagueClientUxRender", "LeagueClient", "League of Legends" };
+            
+            int totalFound = 0;
             int killed = 0;
+            
             foreach (var name in names)
             {
-                foreach (var p in Process.GetProcessesByName(name))
+                var processes = Process.GetProcessesByName(name);
+                totalFound += processes.Length;
+                
+                if (processes.Length > 0)
                 {
-                    try { p.Kill(true); killed++; } catch { }
+                    _logger.ProcessEvent(name, "Found processes", $"count={processes.Length}");
+                }
+                
+                foreach (var p in processes)
+                {
+                    try 
+                    { 
+                        _logger.ProcessEvent(name, "Killing", $"PID={p.Id}");
+                        p.Kill(true); 
+                        killed++; 
+                    } 
+                    catch (Exception ex) 
+                    { 
+                        _logger.Warning($"Failed to kill {name}[{p.Id}]: {ex.Message}");
+                    }
                 }
             }
-            _logger.Info($"Killed processes ({(includeRiotClient ? "full" : "league-only")}): {killed}");
+            
+            _logger.Info($"KillLeague ({(includeRiotClient ? "full" : "league-only")}): found={totalFound}, killed={killed}");
             await Task.Delay(500);
         }
         catch (Exception ex)
@@ -978,59 +1014,95 @@ public partial class RiotClientService : IRiotClientService
 
     public async Task LogoutAsync()
     {
+        await LogoutAsync(includeLcu: true);
+    }
+
+    private async Task LogoutAsync(bool includeLcu)
+    {
         try
         {
-            // 1) Попытка корректного логаута через LCU API
-            try
+            _logger.Info($"LogoutAsync started (includeLcu={includeLcu})");
+            
+            // 1) Попытка корректного логаута через LCU API (только если LCU запущен)
+            if (includeLcu)
             {
-                var lcuLock = FindLockfile(product: "LCU");
-                using var lcu = CreateHttpClient(lcuLock.Port, lcuLock.Password);
                 try
                 {
-                    var del = await lcu.DeleteAsync("/lol-login/v1/session");
-                    await LogResponse("LCU DELETE /lol-login/v1/session [logout]", del);
+                    var lcuLock = FindLockfile(product: "LCU");
+                    using var lcu = CreateHttpClient(lcuLock.Port, lcuLock.Password);
+                    try
+                    {
+                        var del = await lcu.DeleteAsync("/lol-login/v1/session");
+                        await LogResponse("LCU DELETE /lol-login/v1/session [logout]", del);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Error($"Logout LCU error: {ex.Message}");
+                    }
+                    try
+                    {
+                        var delRso = await lcu.DeleteAsync("/rso-auth/v1/session");
+                        await LogResponse("LCU DELETE /rso-auth/v1/session [logout]", delRso);
+                    }
+                    catch { }
                 }
                 catch (Exception ex)
-                {
-                    _logger.Error($"Logout LCU error: {ex.Message}");
+                { 
+                    _logger.Info($"LCU not found or not responding: {ex.Message}");
                 }
-                try
-                {
-                    var delRso = await lcu.DeleteAsync("/rso-auth/v1/session");
-                    await LogResponse("LCU DELETE /rso-auth/v1/session [logout]", delRso);
-                }
-                catch { }
             }
-            catch { /* LCU не найден — ок, идём дальше к RC */ }
 
             // 2) Разлогиниться из Riot Client, чтобы вернуться на экран выбора аккаунта
             try
             {
+                _logger.Info("LogoutAsync: finding RC lockfile");
                 var rc = FindLockfile(product: "RC");
+                _logger.Info($"LogoutAsync: RC found, port={rc.Port}");
+                
                 using var rcClient = CreateHttpClient(rc.Port, rc.Password);
+                
                 // Самый частый эндпоинт логаута RC
                 try
                 {
+                    _logger.Info("LogoutAsync: sending DELETE /rso-auth/v1/authorization");
                     var resp1 = await rcClient.DeleteAsync("/rso-auth/v1/authorization");
-                    await LogResponse("RC DELETE /rso-auth/v1/authorization", resp1);
+                    await LogResponse("RC DELETE /rso-auth/v1/authorization [logout]", resp1);
                 }
-                catch { }
+                catch (Exception ex) 
+                { 
+                    _logger.Warning($"RC logout v1 failed: {ex.Message}");
+                }
+                
                 // Альтернативный роут в новых билдах
                 try
                 {
+                    _logger.Info("LogoutAsync: sending DELETE /rso-auth/v2/authorizations");
                     var resp2 = await rcClient.DeleteAsync("/rso-auth/v2/authorizations");
-                    await LogResponse("RC DELETE /rso-auth/v2/authorizations", resp2);
+                    await LogResponse("RC DELETE /rso-auth/v2/authorizations [logout]", resp2);
                 }
-                catch { }
+                catch (Exception ex) 
+                { 
+                    _logger.Warning($"RC logout v2 failed: {ex.Message}");
+                }
+                
                 // На всякий случай закрыть сам продукт LoL, если RC держит его запущенным
                 try
                 {
+                    _logger.Info("LogoutAsync: sending DELETE /product-launcher/v1/products/league_of_legends");
                     var resp3 = await rcClient.DeleteAsync("/product-launcher/v1/products/league_of_legends");
-                    await LogResponse("RC DELETE /product-launcher/v1/products/league_of_legends", resp3);
+                    await LogResponse("RC DELETE /product-launcher/v1/products/league_of_legends [logout]", resp3);
                 }
-                catch { }
+                catch (Exception ex) 
+                { 
+                    _logger.Warning($"RC product close failed: {ex.Message}");
+                }
+                
+                _logger.Info("LogoutAsync: RC logout completed");
             }
-            catch { /* RC не найден — пропускаем */ }
+            catch (Exception ex) 
+            { 
+                _logger.Error($"RC not found or logout failed: {ex.Message}");
+            }
         }
         catch (Exception ex)
         {
@@ -1586,27 +1658,42 @@ public partial class RiotClientService : IRiotClientService
             try
             {
                 var resp1 = await rcClient.GetAsync("/rso-auth/v1/authorization");
+                _logger.Info($"IsRsoAuthorized v1: status={resp1.StatusCode}");
                 if ((int)resp1.StatusCode == 200)
                 {
                     var json = await resp1.Content.ReadAsStringAsync();
-                    if (JsonLooksAuthorized(json)) return true;
+                    var authorized = JsonLooksAuthorized(json);
+                    _logger.Info($"IsRsoAuthorized v1: authorized={authorized}");
+                    if (authorized) return true;
                 }
             }
-            catch { }
+            catch (Exception ex) 
+            { 
+                _logger.Info($"IsRsoAuthorized v1: exception={ex.Message}");
+            }
             
             // Проверяем v2
             try
             {
                 var resp2 = await rcClient.GetAsync("/rso-auth/v2/authorization");
+                _logger.Info($"IsRsoAuthorized v2: status={resp2.StatusCode}");
                 if ((int)resp2.StatusCode == 200)
                 {
                     var json = await resp2.Content.ReadAsStringAsync();
-                    if (JsonLooksAuthorized(json)) return true;
+                    var authorized = JsonLooksAuthorized(json);
+                    _logger.Info($"IsRsoAuthorized v2: authorized={authorized}");
+                    if (authorized) return true;
                 }
             }
-            catch { }
+            catch (Exception ex) 
+            { 
+                _logger.Info($"IsRsoAuthorized v2: exception={ex.Message}");
+            }
         }
-        catch { }
+        catch (Exception ex) 
+        { 
+            _logger.Info($"IsRsoAuthorized: RC lockfile not found or error={ex.Message}");
+        }
         return false;
     }
 
@@ -2076,6 +2163,48 @@ public partial class RiotClientService : IRiotClientService
         catch { }
     }
 
+    private async Task EnsureRiotClientWindowVisible()
+    {
+        try
+        {
+            for (int attempt = 0; attempt < 10; attempt++)
+            {
+                var p = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault()
+                        ?? Process.GetProcessesByName("Riot Client").FirstOrDefault();
+                
+                if (p != null)
+                {
+                    try
+                    {
+                        using var automation = new UIA3Automation();
+                        var app = Application.Attach(p);
+                        var window = app.GetMainWindow(automation, TimeSpan.FromSeconds(1));
+                        if (window != null)
+                        {
+                            var hwnd = new IntPtr(window.Properties.NativeWindowHandle.Value);
+                            _logger.Info($"Activating Riot Client window: 0x{hwnd:X}");
+                            ShowWindow(hwnd, ShowWindowCommands.Restore);
+                            SetForegroundWindow(hwnd);
+                            await Task.Delay(200);
+                            return;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.Warning($"Failed to activate RC window on attempt {attempt + 1}: {ex.Message}");
+                    }
+                }
+                await Task.Delay(300);
+            }
+            _logger.Warning("Could not find or activate Riot Client window after 10 attempts");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"EnsureRiotClientWindowVisible error: {ex.Message}");
+        }
+    }
+
     private void EnsureForegroundWithRetries(IntPtr hwnd, int retries)
     {
         for (int i = 0; i < retries; i++)
@@ -2500,11 +2629,13 @@ public partial class RiotClientService : IRiotClientService
     {
         try
         {
-            var leagueProcesses = new[] { "LeagueClient", "LeagueClientUx" };
+            var leagueProcesses = new[] { "LeagueClient", "LeagueClientUx", "LeagueClientUxRender", "League of Legends" };
             foreach (var processName in leagueProcesses)
             {
-                if (Process.GetProcessesByName(processName).Length > 0)
+                var count = Process.GetProcessesByName(processName).Length;
+                if (count > 0)
                 {
+                    _logger.Info($"IsLeagueProcessRunning: found {processName}, count={count}");
                     return true;
                 }
             }
@@ -3360,5 +3491,6 @@ public partial class RiotClientService : IRiotClientService
         }
     }
 }
+
 
 

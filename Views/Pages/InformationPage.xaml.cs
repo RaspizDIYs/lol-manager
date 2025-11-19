@@ -23,7 +23,20 @@ public partial class InformationPage : UserControl
         {
             Clipboard.SetText("mejaikin");
             
-            // Используем новый метод MainWindow для показа toast
+            var mainWindow = Window.GetWindow(this) as MainWindow;
+            mainWindow?.ShowToast("Ник скопирован в буфер обмена");
+        }
+        catch
+        {
+        }
+    }
+    
+    private void DiscordNick2_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText("spellq");
+            
             var mainWindow = Window.GetWindow(this) as MainWindow;
             mainWindow?.ShowToast("Ник скопирован в буфер обмена");
         }

@@ -76,12 +76,6 @@
 - **GitHub Actions** для автоматической сборки и релизов
 - **Multithreading** с Interlocked операциями для предотвращения race conditions
 
-## 🔧 Сборка
-
-```bash
-git clone https://github.com/RaspizDIYs/lol-manager.git
-dotnet build --configuration Release
-```
 
 ## 📄 Лицензия
 

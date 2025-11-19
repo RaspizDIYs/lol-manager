@@ -14,6 +14,7 @@ using LolManager.Views;
 using System.Collections.Generic;
 using System.Collections;
 using System.ComponentModel;
+using Newtonsoft.Json.Linq;
 
 namespace LolManager.ViewModels;
 
@@ -827,8 +828,10 @@ public partial class MainViewModel : ObservableObject
 					ConnectionIssueText = msg;
 
 					// Показываем тост только при изменении сообщения или спустя интервал
-					bool shouldToast = !string.Equals(msg, _lastConnectionIssueToast, StringComparison.Ordinal)
-						|| (DateTime.UtcNow - _lastConnectionIssueAt).TotalSeconds > 6;
+					// НЕ показываем во время процесса логина (смены аккаунта)
+					bool shouldToast = !IsLoggingIn 
+						&& (!string.Equals(msg, _lastConnectionIssueToast, StringComparison.Ordinal)
+						|| (DateTime.UtcNow - _lastConnectionIssueAt).TotalSeconds > 6);
 					if (shouldToast)
 					{
 						_lastConnectionIssueToast = msg;
@@ -975,18 +978,15 @@ public partial class MainViewModel : ObservableObject
             var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
             _logger.Info($"Login requested for {SelectedAccount.Username}");
             
-            LoginStatus = "Выход из текущего аккаунта...";
-            try { await _riotClientService.LogoutAsync(); } catch { }
-            
-            LoginStatus = "Закрытие клиента League of Legends...";
-            try { await _riotClientService.KillLeagueAsync(includeRiotClient: false); } catch { }
-            
-            await Task.Delay(500, _loginCts.Token);
-            
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
             await _riotClientService.LoginAsync(SelectedAccount.Username, password, _loginCts.Token);
             
             LoginStatus = "Готово! Вход выполнен успешно";
+            
+            HasConnectionIssue = false;
+            ConnectionIssueText = string.Empty;
+            _lastConnectionIssueToast = string.Empty;
+            
             await Task.Delay(1500, _loginCts.Token);
             LoginStatus = string.Empty;
         }
@@ -1282,14 +1282,29 @@ public partial class MainViewModel : ObservableObject
 
             if (saveFileDialog.ShowDialog() == true)
             {
-                _logger.Info($"Начат экспорт {selectedAccounts.Count} аккаунтов в файл: {Path.GetFileName(saveFileDialog.FileName)}");
-                _accountsStorage.ExportAccounts(saveFileDialog.FileName, selectedAccounts);
+                var password = PasswordInputWindow.ShowDialog(
+                    "Пароль для шифрования",
+                    "Введите пароль для шифрования файла экспорта.\nФайл можно будет открыть на любом компьютере с этим паролем.",
+                    Application.Current.MainWindow);
                 
-                var message = $"Успешно экспортировано {selectedAccounts.Count} аккаунт(ов)!\n\nФайл: {Path.GetFileName(saveFileDialog.FileName)}";
+                if (password == null)
+                {
+                    return;
+                }
+                
+                if (string.IsNullOrWhiteSpace(password))
+                {
+                    MessageWindow.Show("Пароль не может быть пустым.", "Ошибка", MessageWindow.MessageType.Error);
+                    return;
+                }
+
+                _logger.Info($"Начат экспорт {selectedAccounts.Count} аккаунтов в файл: {Path.GetFileName(saveFileDialog.FileName)}");
+                _accountsStorage.ExportAccounts(saveFileDialog.FileName, password, selectedAccounts);
+                
+                var message = $"Успешно экспортировано {selectedAccounts.Count} аккаунт(ов)!\n\nФайл: {Path.GetFileName(saveFileDialog.FileName)}\n\nПароль сохранен в файле. Запомните его для импорта на другом компьютере.";
                 MessageWindow.Show(message, "Экспорт завершен", MessageWindow.MessageType.Information);
                 _logger.Info($"Экспорт завершен успешно: {selectedAccounts.Count} аккаунтов");
                 
-                // Выходим из режима выбора
                 CancelExportSelection();
             }
         }
@@ -1350,6 +1365,34 @@ public partial class MainViewModel : ObservableObject
                 var selectedFile = openFileDialog.FileName;
                 _logger.Info($"Начат импорт из файла: {Path.GetFileName(selectedFile)}");
                 
+                var fileExt = Path.GetExtension(selectedFile).ToLower();
+                string? password = null;
+                
+                if (fileExt == ".lolm")
+                {
+                    try
+                    {
+                        var json = File.ReadAllText(selectedFile, Encoding.UTF8);
+                        var jsonObj = JObject.Parse(json);
+                        
+                        if (jsonObj.ContainsKey("Version") && jsonObj["Version"]?.ToObject<int>() == 3)
+                        {
+                            password = PasswordInputWindow.ShowDialog(
+                                "Пароль для расшифровки",
+                                "Введите пароль для расшифровки файла экспорта.",
+                                Application.Current.MainWindow);
+                            
+                            if (password == null)
+                            {
+                                return;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+                
                 var result = MessageWindow.Show(
                     "Импорт добавит новые аккаунты и обновит существующие с теми же именами.\n\nПродолжить импорт?", 
                     "Подтверждение импорта", 
@@ -1359,9 +1402,8 @@ public partial class MainViewModel : ObservableObject
                 if (result == true)
                 {
                     var accountsCountBefore = Accounts.Count;
-                    _accountsStorage.ImportAccounts(selectedFile);
+                    _accountsStorage.ImportAccounts(selectedFile, password);
                     
-                    // Перезагружаем список аккаунтов
                     Accounts.Clear();
                     foreach (var acc in _accountsStorage.LoadAll())
                     {
@@ -1369,7 +1411,6 @@ public partial class MainViewModel : ObservableObject
                         Accounts.Add(acc);
                     }
                     
-                    var fileExt = Path.GetExtension(selectedFile).ToLower();
                     var formatInfo = fileExt switch
                     {
                         ".lolm" => "зашифрованного файла",
@@ -1386,9 +1427,11 @@ public partial class MainViewModel : ObservableObject
         {
             _logger.Error($"Ошибка импорта: {ex.Message}");
             
-            var errorMsg = ex.Message.Contains("расшифровать") 
-                ? "Не удалось расшифровать файл. Убедитесь, что файл не поврежден и был создан на этом компьютере."
-                : $"Ошибка импорта: {ex.Message}";
+            var errorMsg = ex.Message.Contains("пароль") || ex.Message.Contains("Неверный пароль")
+                ? ex.Message
+                : ex.Message.Contains("расшифровать") 
+                    ? "Не удалось расшифровать файл. Проверьте правильность пароля или убедитесь, что файл не поврежден."
+                    : $"Ошибка импорта: {ex.Message}";
             
             MessageWindow.Show(errorMsg, "Ошибка импорта", MessageWindow.MessageType.Error);
         }
@@ -1419,7 +1462,7 @@ public partial class MainViewModel : ObservableObject
 	{
 		try
 		{
-			var url = "https://github.com/RaspizDIYs/lol-manager";
+			var url = "https://github.com/SpelLOVE/lol-manager";
 			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
 			{
 				FileName = url,
