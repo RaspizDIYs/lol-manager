@@ -524,7 +524,14 @@ public partial class MainViewModel : ObservableObject
 	[RelayCommand]
 	private void OpenSpy()
 	{
-		SelectedTabIndex = 5;
+		if (RevealSettings?.IsEnabled == true)
+		{
+			SelectedTabIndex = 5;
+		}
+		else
+		{
+			SelectedTabIndex = 0;
+		}
 	}
 
 	[RelayCommand]
@@ -545,7 +552,7 @@ public partial class MainViewModel : ObservableObject
 		NewUsername = SelectedAccount.Username;
 		NewNote = SelectedAccount.Note;
 		NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
-		SelectedTabIndex = 5;
+		SelectedTabIndex = 6;
 	}
 
 	[RelayCommand]
@@ -742,6 +749,10 @@ public partial class MainViewModel : ObservableObject
 	partial void OnSelectedTabIndexChanged(int value)
 	{
 		if (value == 2) EnsureLogsTail();
+		if (value == 5 && RevealSettings?.IsEnabled != true)
+		{
+			SelectedTabIndex = 0;
+		}
 	}
 
 	private void EnsureLogsTail()
