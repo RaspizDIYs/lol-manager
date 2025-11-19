@@ -79,9 +79,15 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         // Velopack должен быть самым первым!
-        // Он обрабатывает установку, удаление, перезапуск и создание ярлыков.
-        VelopackApp.Build()
-            .Run();
+        try 
+        {
+            VelopackApp.Build().Run();
+        }
+        catch (Exception ex)
+        {
+            // Logger еще не инициализирован
+            Trace.WriteLine($"[APP] Velopack startup error: {ex.Message}");
+        }
 
         const string mutexName = "LolManager_SingleInstance_Mutex";
         const string eventName = "LolManager_ShowWindow_Event";
@@ -102,28 +108,6 @@ public partial class App : Application
         }
         
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, eventName);
-        _ipcThread = new Thread(() =>
-        {
-            while (true)
-            {
-                if (_showEvent.WaitOne())
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        if (MainWindow != null)
-                        {
-                            MainWindow.Show();
-                            MainWindow.WindowState = WindowState.Normal;
-                            MainWindow.Activate();
-                        }
-                    });
-                }
-            }
-        })
-        {
-            IsBackground = true
-        };
-        _ipcThread.Start();
         
         // Регистрация сервисов
         RegisterServices();
@@ -135,9 +119,43 @@ public partial class App : Application
         
         base.OnStartup(e);
 
-        // Явное создание главного окна (так как убрали StartupUri)
+        // Явное создание главного окна
         MainWindow = new Views.MainWindow();
         MainWindow.Show();
+        
+        // Запускаем прослушку второй копии ТОЛЬКО когда окно уже готово
+        _ipcThread = new Thread(() =>
+        {
+            while (true)
+            {
+                try
+                {
+                    if (_showEvent.WaitOne())
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (MainWindow != null)
+                            {
+                                if (MainWindow.WindowState == WindowState.Minimized)
+                                    MainWindow.WindowState = WindowState.Normal;
+                                    
+                                MainWindow.Show();
+                                MainWindow.Activate();
+                                MainWindow.Topmost = true;  // Временный Topmost чтобы точно вылезти
+                                MainWindow.Topmost = false;
+                                MainWindow.Focus();
+                            }
+                        });
+                    }
+                }
+                catch { }
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "IPC Listener"
+        };
+        _ipcThread.Start();
         
         // Автоматическая проверка обновлений при запуске (без ожидания)
         _ = CheckForUpdatesOnStartupAsync();
