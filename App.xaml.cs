@@ -200,6 +200,7 @@ public partial class App : Application
         var dataDragonService = new DataDragonService(logger);
         var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService, settingsService);
         var runeDataService = new RuneDataService();
+        var runePagesStorage = new RunePagesStorage(logger);
         var updateService = new UpdateService(logger, settingsService);
         
         _services[typeof(ILogger)] = logger;
@@ -208,6 +209,7 @@ public partial class App : Application
         _services[typeof(DataDragonService)] = dataDragonService;
         _services[typeof(AutoAcceptService)] = autoAcceptService;
         _services[typeof(RuneDataService)] = runeDataService;
+        _services[typeof(IRunePagesStorage)] = runePagesStorage;
         _services[typeof(IUpdateService)] = updateService;
     }
 

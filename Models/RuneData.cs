@@ -10,6 +10,8 @@ public class Rune
     public string Key { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Icon { get; set; } = string.Empty;
+    public string ShortDesc { get; set; } = string.Empty;
+    public string LongDesc { get; set; } = string.Empty;
 }
 
 public class RuneSlot
@@ -24,6 +26,16 @@ public class RunePath
     public string Name { get; set; } = string.Empty;
     public string Icon { get; set; } = string.Empty;
     public List<RuneSlot> Slots { get; set; } = new();
+    
+    public string ColorHex => Key switch
+    {
+        "Precision" => "#C8AA6E",
+        "Domination" => "#C83C51",
+        "Sorcery" => "#6C8CD5",
+        "Resolve" => "#A1D586",
+        "Inspiration" => "#48C9B0",
+        _ => "#6C8CD5"
+    };
 }
 
 public class RunePage : INotifyPropertyChanged

@@ -18,60 +18,34 @@ public class RunePagePreviewConverter : IMultiValueConverter
         
         var runeDataService = ((App)System.Windows.Application.Current).GetService<Services.RuneDataService>();
         
-        if (runePage.PrimaryKeystoneId != 0)
+        // Вспомогательная функция для безопасного добавления иконки
+        void TryAddRuneIcon(int runeId)
         {
-            var rune = runeDataService.GetRuneById(runePage.PrimaryKeystoneId);
-            if (rune != null) runeIcons.Add(rune.Icon);
+            if (runeId != 0)
+            {
+                var rune = runeDataService.GetRuneById(runeId);
+                // Проверяем что rune не null, Icon не пустой и начинается с http
+                if (rune != null && 
+                    !string.IsNullOrWhiteSpace(rune.Icon) && 
+                    rune.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    runeIcons.Add(rune.Icon);
+                }
+            }
         }
         
-        if (runePage.PrimarySlot1Id != 0)
-        {
-            var rune = runeDataService.GetRuneById(runePage.PrimarySlot1Id);
-            if (rune != null) runeIcons.Add(rune.Icon);
-        }
-        
-        if (runePage.PrimarySlot2Id != 0)
-        {
-            var rune = runeDataService.GetRuneById(runePage.PrimarySlot2Id);
-            if (rune != null) runeIcons.Add(rune.Icon);
-        }
-        
-        if (runePage.PrimarySlot3Id != 0)
-        {
-            var rune = runeDataService.GetRuneById(runePage.PrimarySlot3Id);
-            if (rune != null) runeIcons.Add(rune.Icon);
-        }
-        
-        if (runePage.SecondarySlot1Id != 0)
-        {
-            var rune = runeDataService.GetRuneById(runePage.SecondarySlot1Id);
-            if (rune != null) runeIcons.Add(rune.Icon);
-        }
-        
-        if (runePage.SecondarySlot2Id != 0)
-        {
-            var rune = runeDataService.GetRuneById(runePage.SecondarySlot2Id);
-            if (rune != null) runeIcons.Add(rune.Icon);
-        }
-        
-        // Добавляем шардовые иконки (3 шт.)
-        if (runePage.StatMod1Id != 0)
-        {
-            var shard = runeDataService.GetRuneById(runePage.StatMod1Id);
-            if (shard != null) runeIcons.Add(shard.Icon);
-        }
-        if (runePage.StatMod2Id != 0)
-        {
-            var shard = runeDataService.GetRuneById(runePage.StatMod2Id);
-            if (shard != null) runeIcons.Add(shard.Icon);
-        }
-        if (runePage.StatMod3Id != 0)
-        {
-            var shard = runeDataService.GetRuneById(runePage.StatMod3Id);
-            if (shard != null) runeIcons.Add(shard.Icon);
-        }
+        TryAddRuneIcon(runePage.PrimaryKeystoneId);
+        TryAddRuneIcon(runePage.PrimarySlot1Id);
+        TryAddRuneIcon(runePage.PrimarySlot2Id);
+        TryAddRuneIcon(runePage.PrimarySlot3Id);
+        TryAddRuneIcon(runePage.SecondarySlot1Id);
+        TryAddRuneIcon(runePage.SecondarySlot2Id);
+        TryAddRuneIcon(runePage.SecondarySlot3Id); // Был пропущен!
+        TryAddRuneIcon(runePage.StatMod1Id);
+        TryAddRuneIcon(runePage.StatMod2Id);
+        TryAddRuneIcon(runePage.StatMod3Id);
 
-        return runeIcons.Take(9).ToArray();
+        return runeIcons.ToArray(); // Возвращаем все (не только первые 9)
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

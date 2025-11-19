@@ -10,6 +10,7 @@
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <converters:RunePagePreviewConverter x:Key="RunePagePreviewConverter"/>
         <converters:CollectionCountToVisibilityConverter x:Key="CollectionCountToVisibility"/>
+        <converters:RuneImageConverter x:Key="RuneImageConverter"/>
         <!-- ItemTemplate для чемпионов с иконками -->
         <DataTemplate x:Key="ChampionTemplate">
             <StackPanel Orientation="Horizontal">
@@ -313,67 +314,71 @@
                           Visibility="{Binding RunePages, Converter={StaticResource CollectionCountToVisibility}}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <ui:Card Margin="0,0,0,6" Padding="10">
+                        <ui:Card Margin="0,0,0,8" Padding="12">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 
-                                <!-- Превью рун -->
-                                <ItemsControl Grid.Column="0"
-                                              Margin="0,0,10,0"
-                                              VerticalAlignment="Center">
-                                    <ItemsControl.ItemsSource>
-                                        <MultiBinding Converter="{StaticResource RunePagePreviewConverter}">
-                                            <Binding Path="."/>
-                                        </MultiBinding>
-                                    </ItemsControl.ItemsSource>
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel MaxWidth="180"/>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border Width="24"
-                                                    Height="24"
-                                                    Margin="2"
-                                                    CornerRadius="12"
-                                                    Background="#1E2328">
-                                                <Image Source="{Binding Converter={StaticResource RuneImageConverter}}"
-                                                       Width="20"
-                                                       Height="20"
-                                                       Stretch="UniformToFill"/>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                
-                                <TextBlock Grid.Column="1"
-                                          Text="{Binding Name}"
-                                          VerticalAlignment="Center"
-                                          FontSize="14"
-                                          FontWeight="SemiBold"/>
-                                
-                                <StackPanel Grid.Column="2" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                    <ui:Button Content="✏️"
-                                               Width="32"
-                                               Height="32"
-                                               Margin="4,0"
-                                               Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
-                                               CommandParameter="{Binding}"
-                                               ToolTip="Редактировать"/>
-                                    <ui:Button Content="🗑️"
-                                               Width="32"
-                                               Height="32"
-                                               Margin="4,0"
-                                               Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
-                                               CommandParameter="{Binding}"
-                                               ToolTip="Удалить"/>
+                                <!-- Название и превью -->
+                                <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}"
+                                              FontSize="14"
+                                              FontWeight="SemiBold"
+                                              Margin="0,0,0,6"
+                                              TextTrimming="CharacterEllipsis"/>
+                                    
+                                    <!-- Превью рун (горизонтально) -->
+                                    <ItemsControl>
+                                        <ItemsControl.ItemsSource>
+                                            <MultiBinding Converter="{StaticResource RunePagePreviewConverter}">
+                                                <Binding Path="."/>
+                                            </MultiBinding>
+                                        </ItemsControl.ItemsSource>
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="22"
+                                                        Height="22"
+                                                        Margin="0,0,4,0"
+                                                        CornerRadius="11"
+                                                        Background="#0A0E12"
+                                                        BorderBrush="#2A2F36"
+                                                        BorderThickness="1.5">
+                                                    <Image Source="{Binding Converter={StaticResource RuneImageConverter}}"
+                                                           Width="18"
+                                                           Height="18"
+                                                           Stretch="UniformToFill"/>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
+                                
+                                <!-- Кнопки -->
+                                <ui:Button Grid.Column="1"
+                                           Content="✏️ "
+                                           Width="40"
+                                           Height="36"
+                                           Padding="8,6"
+                                           Margin="8,0,4,0"
+                                           Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
+                                           CommandParameter="{Binding}"
+                                           ToolTip="Редактировать"/>
+                                <ui:Button Grid.Column="2"
+                                           Content="🗑️ "
+                                           Width="40"
+                                           Height="36"
+                                           Padding="8,6"
+                                           Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
+                                           CommandParameter="{Binding}"
+                                           ToolTip="Удалить"/>
                             </Grid>
                         </ui:Card>
                     </DataTemplate>

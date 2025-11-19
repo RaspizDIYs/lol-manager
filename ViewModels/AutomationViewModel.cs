@@ -18,6 +18,7 @@ public partial class AutomationViewModel : ObservableObject
     private readonly AutoAcceptService _autoAcceptService;
     private readonly RuneDataService _runeDataService;
     private readonly RiotClientService _riotClientService;
+    private readonly IRunePagesStorage _runePagesStorage;
 
     [ObservableProperty]
     private bool isAutomationEnabled;
@@ -61,7 +62,7 @@ public partial class AutomationViewModel : ObservableObject
     [ObservableProperty]
     private int pickDelaySeconds;
 
-    public AutomationViewModel(ILogger logger, ISettingsService settingsService, DataDragonService dataDragonService, AutoAcceptService autoAcceptService, RuneDataService runeDataService, RiotClientService riotClientService)
+    public AutomationViewModel(ILogger logger, ISettingsService settingsService, DataDragonService dataDragonService, AutoAcceptService autoAcceptService, RuneDataService runeDataService, RiotClientService riotClientService, IRunePagesStorage runePagesStorage)
     {
         _logger = logger;
         _settingsService = settingsService;
@@ -69,6 +70,7 @@ public partial class AutomationViewModel : ObservableObject
         _autoAcceptService = autoAcceptService;
         _runeDataService = runeDataService;
         _riotClientService = riotClientService;
+        _runePagesStorage = runePagesStorage;
         
         // Добавляем базовые элементы
         Champions.Add("(Не выбрано)");
@@ -222,7 +224,8 @@ public partial class AutomationViewModel : ObservableObject
             _previousSpell2 = SelectedSummonerSpell2;
             
             RunePages.Clear();
-            foreach (var page in settings.RunePages)
+            var savedPages = _runePagesStorage.LoadAll();
+            foreach (var page in savedPages)
             {
                 RunePages.Add(page);
             }
@@ -384,8 +387,7 @@ public partial class AutomationViewModel : ObservableObject
                 ChampionToBan = banValue,
                 SummonerSpell1 = SelectedSummonerSpell1 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell1,
                 SummonerSpell2 = SelectedSummonerSpell2 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell2,
-                SelectedRunePageName = SelectedRunePageName == "(Не выбрано)" ? string.Empty : SelectedRunePageName,
-                RunePages = RunePages.ToList()
+                SelectedRunePageName = SelectedRunePageName == "(Не выбрано)" ? string.Empty : SelectedRunePageName
             };
             
             _settingsService.SaveSetting("AutomationSettings", settings);
@@ -408,6 +410,7 @@ public partial class AutomationViewModel : ObservableObject
         if (window.ShowDialog() == true)
         {
             var runePage = window.GetSavedPage();
+            _runePagesStorage.Save(runePage);
             RunePages.Add(runePage);
             UpdateRunePageNames();
             SelectedRunePageName = runePage.Name;
@@ -437,23 +440,18 @@ public partial class AutomationViewModel : ObservableObject
             _logger.Info($"[EditRunePage] Обновленные данные: Primary={updatedPage.PrimaryPathId}, Secondary={updatedPage.SecondaryPathId}");
             
             var index = RunePages.IndexOf(page);
-            _logger.Info($"[EditRunePage] Индекс страницы в коллекции: {index}");
             
             if (index >= 0)
             {
+                _runePagesStorage.Save(updatedPage);
                 RunePages[index] = updatedPage;
-                _logger.Info($"[EditRunePage] Страница обновлена в коллекции");
                 UpdateRunePageNames();
 
-                // Обновляем выбранную страницу, если редактировали текущую
                 if (SelectedRunePageName == page.Name)
                 {
                     SelectedRunePageName = updatedPage.Name;
-                    _logger.Info($"[EditRunePage] Обновлено имя выбранной страницы: {updatedPage.Name}");
                 }
             }
-            SaveSettingsInternal();
-            _logger.Info($"[EditRunePage] Настройки сохранены");
             _logger.Info($"[EditRunePage] Страница рун '{updatedPage.Name}' успешно обновлена");
         }
         else
@@ -519,8 +517,7 @@ public partial class AutomationViewModel : ObservableObject
     [RelayCommand]
     private void DeleteRunePage(RunePage page)
     {
-        _logger.Info($"DeleteRunePage вызван для страницы: {page.Name}");
-        
+        _runePagesStorage.Delete(page.Name);
         RunePages.Remove(page);
         UpdateRunePageNames();
 
@@ -528,9 +525,81 @@ public partial class AutomationViewModel : ObservableObject
         {
             SelectedRunePageName = "(Не выбрано)";
         }
-        SaveSettingsInternal(); // Добавляем сохранение после удаления
         
-        _logger.Info($"Страница рун '{page.Name}' успешно удалена");
+        _logger.Info($"Страница рун '{page.Name}' удалена");
+    }
+    
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task ApplyRunePage(RunePage page, CancellationToken cancellationToken)
+    {
+        if (page == null) return;
+        
+        try
+        {
+            _logger.Info($"Применение страницы рун '{page.Name}'...");
+            
+            // Используем CancellationTokenSource с таймаутом
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromSeconds(2)); // 2 секунды таймаут
+            
+            bool success = false;
+            
+            try
+            {
+                success = await _riotClientService.ApplyRunePageAsync(page).WaitAsync(cts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Таймаут (не отмена пользователем)
+                _logger.Error($"❌ Таймаут при применении рун '{page.Name}' - клиент League of Legends не отвечает");
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    System.Windows.MessageBox.Show(
+                        "Не удалось применить страницу рун.\n\nУбедитесь что клиент League of Legends запущен и находится в лобби.",
+                        "Таймаут операции",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Warning);
+                });
+                return;
+            }
+            
+            if (success)
+            {
+                _logger.Info($"✅ Страница рун '{page.Name}' успешно применена");
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    System.Windows.MessageBox.Show(
+                        $"Страница рун '{page.Name}' успешно применена в клиенте!",
+                        "Успех",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Information);
+                });
+            }
+            else
+            {
+                _logger.Error($"❌ Не удалось применить страницу рун '{page.Name}'");
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    System.Windows.MessageBox.Show(
+                        "Не удалось применить страницу рун.\n\nПроверьте:\n• Клиент League of Legends запущен\n• Вы находитесь в лобби\n• У вас есть свободные слоты для страниц рун",
+                        "Ошибка",
+                        System.Windows.MessageBoxButton.OK,
+                        System.Windows.MessageBoxImage.Error);
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"❌ Ошибка применения рун: {ex.Message}");
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                System.Windows.MessageBox.Show(
+                    $"Произошла ошибка при применении рун:\n\n{ex.Message}",
+                    "Ошибка",
+                    System.Windows.MessageBoxButton.OK,
+                    System.Windows.MessageBoxImage.Error);
+            });
+        }
     }
 
     private void UpdateRunePageNames()

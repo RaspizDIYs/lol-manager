@@ -183,12 +183,17 @@ public partial class RunePageEditorWindow
         
         if (string.IsNullOrWhiteSpace(_viewModel.PageName))
             missing.Add("название");
+        else if (_viewModel.PageName.Length > 50)
+            missing.Add("название (макс. 50 символов)");
         
         if (_viewModel.SelectedPrimaryPath == null)
             missing.Add("основной путь");
         
         if (_viewModel.SelectedSecondaryPath == null)
             missing.Add("дополнительный путь");
+        else if (_viewModel.SelectedPrimaryPath != null && 
+                 _viewModel.SelectedSecondaryPath.Id == _viewModel.SelectedPrimaryPath.Id)
+            missing.Add("дополнительный путь (должен отличаться)");
         
         if (_viewModel.SelectedKeystone == null)
             missing.Add("краеугольный камень");
@@ -204,12 +209,12 @@ public partial class RunePageEditorWindow
         if (_viewModel.SelectedSecondarySlot3 != null) secondaryCount++;
         
         if (secondaryCount != 2)
-            missing.Add("дополнительные руны (2 из 3)");
+            missing.Add("дополнительные руны (2 из разных рядов)");
         
         if (_viewModel.SelectedStatMod1 == null || 
             _viewModel.SelectedStatMod2 == null || 
             _viewModel.SelectedStatMod3 == null)
-            missing.Add("статистика");
+            missing.Add("осколки");
         
         return string.Join(", ", missing);
     }

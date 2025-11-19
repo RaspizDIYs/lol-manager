@@ -58,7 +58,7 @@ public class RuneDataService
 
     public List<RunePath> GetAllPaths()
     {
-        if (_cachedPaths != null) return _cachedPaths;
+        if (_cachedPaths != null) return new List<RunePath>(_cachedPaths);
 
         try
         {
@@ -107,13 +107,12 @@ public class RuneDataService
             }
 
             _cachedPaths = result;
-            return _cachedPaths;
+            return new List<RunePath>(_cachedPaths);
         }
         catch
         {
-            // Fallback: пустой список, чтобы UI не падал
             _cachedPaths = new List<RunePath>();
-            return _cachedPaths;
+            return new List<RunePath>();
         }
     }
 
