@@ -883,10 +883,14 @@ public class UpdateService : IUpdateService
             var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
             var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
                 .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
-                .Where(t => !t.Contains("Releases ·", StringComparison.OrdinalIgnoreCase))
+                .Where(t => !t.Contains("Release", StringComparison.OrdinalIgnoreCase) || t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
                 .Where(t => !t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
+                .Where(t => t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            return titles.FirstOrDefault()?.Trim();
+            
+            var result = titles.FirstOrDefault()?.Trim();
+            _logger.Info($"Latest stable from atom: {result ?? "null"}");
+            return result;
         }
         catch (Exception ex)
         {
@@ -901,20 +905,15 @@ public class UpdateService : IUpdateService
         {
             var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
             var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
-            // простой парсинг: ищем <title>vX.Y.Z-beta.N</title>
             var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
                 .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
+                .Where(t => t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
                 .Where(t => t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
                 .ToList();
-            // первый заголовок после общего заголовка канала — обычно последний релиз
-            foreach (var t in titles)
-            {
-                // отбрасываем общий title канала Releases · owner/repo
-                if (t.Contains("Releases ·", StringComparison.OrdinalIgnoreCase)) continue;
-                // возвращаем первый beta-тег
-                return t.Trim();
-            }
-            return null;
+            
+            var result = titles.FirstOrDefault()?.Trim();
+            _logger.Info($"Latest beta from atom: {result ?? "null"}");
+            return result;
         }
         catch (Exception ex)
         {
@@ -925,11 +924,25 @@ public class UpdateService : IUpdateService
 
     private bool IsStableTagNewerThanCurrentBase(string tag)
     {
-        if (string.IsNullOrWhiteSpace(tag)) return false;
+        if (string.IsNullOrWhiteSpace(tag))
+        {
+            _logger.Info("IsStableTagNewerThanCurrentBase: tag is null or empty");
+            return false;
+        }
+        
         var versionStr = tag.StartsWith("v") ? tag.Substring(1) : tag;
         var currentBaseStr = CurrentVersion.Contains("-beta.") ? CurrentVersion.Split("-beta.")[0] : CurrentVersion;
+        
+        _logger.Info($"Comparing versions: remote '{versionStr}' vs current '{currentBaseStr}'");
+        
         if (Version.TryParse(versionStr, out var rel) && Version.TryParse(currentBaseStr, out var cur))
-            return rel > cur;
+        {
+            var isNewer = rel > cur;
+            _logger.Info($"Version comparison result: {rel} > {cur} = {isNewer}");
+            return isNewer;
+        }
+        
+        _logger.Warning($"Failed to parse versions: remote '{versionStr}' or current '{currentBaseStr}'");
         return false;
     }
 
