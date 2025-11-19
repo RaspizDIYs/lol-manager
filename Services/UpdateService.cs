@@ -881,14 +881,14 @@ public class UpdateService : IUpdateService
         {
             var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
             var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
-            var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-                .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
-                .Where(t => !t.Contains("Release", StringComparison.OrdinalIgnoreCase) || t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            
+            // Парсим <id> теги из atom feed: <id>tag:github.com,2008:Repository/xxx/v0.2.9</id>
+            var ids = System.Text.RegularExpressions.Regex.Matches(xml, @"<id>tag:github\.com,\d+:Repository/\d+/(v[\d\.\-\w]+)</id>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => m.Groups[1].Value)
                 .Where(t => !t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
-                .Where(t => t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
                 .ToList();
             
-            var result = titles.FirstOrDefault()?.Trim();
+            var result = ids.FirstOrDefault()?.Trim();
             _logger.Info($"Latest stable from atom: {result ?? "null"}");
             return result;
         }
@@ -905,13 +905,14 @@ public class UpdateService : IUpdateService
         {
             var url = "https://github.com/RaspizDIYs/lol-manager/releases.atom";
             var xml = await HttpGetStringWithRetry(url, TimeSpan.FromSeconds(15));
-            var titles = System.Text.RegularExpressions.Regex.Matches(xml, @"<title>(.*?)</title>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-                .Select(m => System.Net.WebUtility.HtmlDecode(m.Groups[1].Value))
-                .Where(t => t.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            
+            // Парсим <id> теги из atom feed: <id>tag:github.com,2008:Repository/xxx/v0.2.9-beta.1</id>
+            var ids = System.Text.RegularExpressions.Regex.Matches(xml, @"<id>tag:github\.com,\d+:Repository/\d+/(v[\d\.\-\w]+)</id>", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                .Select(m => m.Groups[1].Value)
                 .Where(t => t.Contains("-beta.", StringComparison.OrdinalIgnoreCase))
                 .ToList();
             
-            var result = titles.FirstOrDefault()?.Trim();
+            var result = ids.FirstOrDefault()?.Trim();
             _logger.Info($"Latest beta from atom: {result ?? "null"}");
             return result;
         }
