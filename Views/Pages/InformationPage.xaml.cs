@@ -17,7 +17,7 @@ public partial class InformationPage : UserControl
         DataContextChanged += OnDataContextChanged;
     }
     
-    private void DiscordNick_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void DiscordNickMejaikin_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         try
         {
@@ -31,11 +31,25 @@ public partial class InformationPage : UserControl
         }
     }
     
-    private void DiscordNick2_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void DiscordNickSpellov_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         try
         {
             Clipboard.SetText("spellq");
+            
+            var mainWindow = Window.GetWindow(this) as MainWindow;
+            mainWindow?.ShowToast("Ник скопирован в буфер обмена");
+        }
+        catch
+        {
+        }
+    }
+    
+    private void DiscordNickShpinat_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText("shp1n4t");
             
             var mainWindow = Window.GetWindow(this) as MainWindow;
             mainWindow?.ShowToast("Ник скопирован в буфер обмена");

@@ -1493,6 +1493,26 @@ public partial class MainViewModel : ObservableObject
 		}
 
 	[RelayCommand]
+	private void OpenDiscord()
+	{
+		try
+		{
+			var url = "https://discord.gg/dmx5GqHDcN";
+			System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+			{
+				FileName = url,
+				UseShellExecute = true
+			});
+			_logger.Info($"Opened Discord: {url}");
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"Failed to open Discord: {ex.Message}");
+			MessageWindow.Show($"Ошибка открытия Discord: {ex.Message}", "Ошибка", MessageWindow.MessageType.Error);
+		}
+	}
+
+	[RelayCommand]
 	private async Task TestRevealConnection()
 	{
 		try
