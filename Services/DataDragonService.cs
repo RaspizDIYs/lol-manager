@@ -89,6 +89,8 @@ public class DataDragonService
             var response = await _httpClient.GetStringAsync(url);
             using var doc = JsonDocument.Parse(response);
             
+            var tasks = new List<Task>();
+            
             foreach (var champ in doc.RootElement.GetProperty("data").EnumerateObject())
             {
                 var englishName = champ.Name; // "Aatrox", "MonkeyKing"
@@ -111,19 +113,72 @@ public class DataDragonService
                 
                 var aliases = GetChampionAliases(englishName, displayName);
                 
-                var skins = new List<Models.SkinInfo>();
-                if (champ.Value.TryGetProperty("skins", out var skinsArray) && skinsArray.ValueKind == JsonValueKind.Array)
+                var info = new Models.ChampionInfo
                 {
-                    foreach (var skin in skinsArray.EnumerateArray())
+                    DisplayName = displayName,
+                    EnglishName = englishName,
+                    Id = id,
+                    ImageFileName = englishName,
+                    Tags = tags,
+                    Aliases = aliases,
+                    Skins = new List<Models.SkinInfo>()
+                };
+                
+                _championInfoCache[displayName] = info;
+                champions[displayName] = id;
+                
+                // Загружаем детальную информацию о чемпионе асинхронно
+                tasks.Add(LoadChampionDetailsAsync(englishName, displayName, championId, version));
+            }
+            
+            // Ждем загрузки всех деталей чемпионов
+            await Task.WhenAll(tasks);
+            
+            _cachedChampions = champions;
+            _logger.Info($"DataDragon: Загружено {champions.Count} чемпионов.");
+            return _cachedChampions;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"DataDragon: Ошибка загрузки чемпионов: {ex.Message}");
+            return [];
+        }
+        finally
+        {
+            _championLoadLock.Release();
+        }
+    }
+    
+    private async Task LoadChampionDetailsAsync(string englishName, string displayName, int championId, string version)
+    {
+        try
+        {
+            var url = $"https://ddragon.leagueoflegends.com/cdn/{version}/data/en_US/champion/{englishName}.json";
+            var response = await _httpClient.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(response);
+            
+            var championData = doc.RootElement.GetProperty("data").GetProperty(englishName);
+            
+            if (!_championInfoCache.TryGetValue(displayName, out var info))
+                return;
+            
+            var skins = new List<Models.SkinInfo>();
+            if (championData.TryGetProperty("skins", out var skinsArray) && skinsArray.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var skin in skinsArray.EnumerateArray())
+                {
+                    if (skin.TryGetProperty("id", out var skinIdProp) && 
+                        skin.TryGetProperty("num", out var skinNumProp) &&
+                        skin.TryGetProperty("name", out var skinNameProp))
                     {
-                        if (skin.TryGetProperty("id", out var skinIdProp) && 
-                            skin.TryGetProperty("num", out var skinNumProp) &&
-                            skin.TryGetProperty("name", out var skinNameProp))
+                        var skinIdStr = skinIdProp.GetString() ?? string.Empty;
+                        var skinNum = skinNumProp.GetInt32();
+                        var skinName = skinNameProp.GetString() ?? string.Empty;
+                        
+                        // Парсим ID скина (формат: "266000", "266001" и т.д.)
+                        if (int.TryParse(skinIdStr, out var skinId))
                         {
-                            var skinId = skinIdProp.GetInt32();
-                            var skinNum = skinNumProp.GetInt32();
-                            var skinName = skinNameProp.GetString() ?? string.Empty;
-                            
+                            // backgroundSkinId использует формат: championId * 1000 + skinNum
                             var backgroundSkinId = championId * 1000 + skinNum;
                             
                             skins.Add(new Models.SkinInfo
@@ -138,34 +193,14 @@ public class DataDragonService
                         }
                     }
                 }
-                
-                var info = new Models.ChampionInfo
-                {
-                    DisplayName = displayName,
-                    EnglishName = englishName,
-                    Id = id,
-                    ImageFileName = englishName,
-                    Tags = tags,
-                    Aliases = aliases,
-                    Skins = skins
-                };
-                
-                _championInfoCache[displayName] = info;
-                champions[displayName] = id;
             }
             
-            _cachedChampions = champions;
-            _logger.Info($"DataDragon: Загружено {champions.Count} чемпионов.");
-            return _cachedChampions;
+            info.Skins = skins;
+            _logger.Debug($"Loaded {skins.Count} skins for {displayName}");
         }
         catch (Exception ex)
         {
-            _logger.Error($"DataDragon: Ошибка загрузки чемпионов: {ex.Message}");
-            return [];
-        }
-        finally
-        {
-            _championLoadLock.Release();
+            _logger.Warning($"Failed to load champion details for {displayName}: {ex.Message}");
         }
     }
     
