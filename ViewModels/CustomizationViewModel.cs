@@ -313,7 +313,8 @@ public partial class CustomizationViewModel : ObservableObject
                 }
                 else
                 {
-                    System.Windows.MessageBox.Show("Не удалось установить фон. Возможно, клиент еще не готов или произошла ошибка при установке.", "Ошибка", 
+                    var logPath = _logger.LogFilePath;
+                    System.Windows.MessageBox.Show($"Не удалось установить фон. Возможно, клиент еще не готов или произошла ошибка при установке.\n\nПроверьте логи для деталей:\n{logPath}", "Ошибка", 
                         System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
                 }
             }
@@ -344,15 +345,53 @@ public partial class CustomizationViewModel : ObservableObject
 
         if (challengeIds.Count == 0)
         {
-            System.Windows.MessageBox.Show("Выберите хотя бы один челендж", "Предупреждение", 
-                System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+            try
+            {
+                IsLoading = true;
+                var success = await _customizationService.SetChallengeTokensAsync(new List<long>(), -1);
+                
+                if (success)
+                {
+                    System.Windows.MessageBox.Show("Челенджи успешно очищены", "Успех", 
+                        System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                }
+                else
+                {
+                    System.Windows.MessageBox.Show("Не удалось очистить челенджи. Убедитесь, что клиент LoL запущен.", "Ошибка", 
+                        System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Ошибка очистки челенджей: {ex.Message}");
+                System.Windows.MessageBox.Show($"Ошибка: {ex.Message}", "Ошибка", 
+                    System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsLoading = false;
+            }
             return;
         }
 
         try
         {
             IsLoading = true;
-            var success = await _customizationService.SetChallengeTokensAsync(challengeIds);
+            
+            var finalChallengeIds = new List<long>();
+            foreach (var id in challengeIds)
+            {
+                finalChallengeIds.Add(id);
+                finalChallengeIds.Add(id);
+                finalChallengeIds.Add(id);
+            }
+            
+            while (finalChallengeIds.Count > 3)
+            {
+                finalChallengeIds.RemoveAt(finalChallengeIds.Count - 1);
+            }
+            
+            var success = await _customizationService.SetChallengeTokensAsync(finalChallengeIds, -1);
             
             if (success)
             {
