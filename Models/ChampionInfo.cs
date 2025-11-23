@@ -10,5 +10,6 @@ public class ChampionInfo
     public string ImageFileName { get; set; } = string.Empty;
     public List<string> Tags { get; set; } = new(); // Fighter, Tank, Mage, Assassin, Support, Marksman
     public List<string> Aliases { get; set; } = new(); // Сокращения и альтернативные имена
+    public List<SkinInfo> Skins { get; set; } = new(); // Список скинов чемпиона
 }
 

@@ -29,6 +29,7 @@
             <converters:RuneImageConverter x:Key="RuneImageConverter" />
             <converters:NotNullConverter x:Key="NotNullConverter" />
             <converters:RunePagePreviewConverter x:Key="RunePagePreviewConverter" />
+            <converters:ImageUrlConverter x:Key="ImageUrlConverter" />
             <converters:CollectionCountToVisibilityConverter x:Key="CollectionCountToVisibility" />
         </ResourceDictionary>
     </Application.Resources>

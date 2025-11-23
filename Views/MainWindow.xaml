@@ -419,6 +419,28 @@
                                       FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
                         </StackPanel>
                     </ui:Button>
+                    
+                    <ui:Button x:Name="CustomizationButton"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left"
+                              Height="52"
+                              Margin="0,0,0,8"
+                              Appearance="Secondary"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              CornerRadius="12"
+                              Tag="6"
+                              Style="{StaticResource AnimatedNavButton}"
+                              Click="NavButton_Click">
+                        <ui:Button.RenderTransform>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        </ui:Button.RenderTransform>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="PaintBrush24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <TextBlock x:Name="CustomizationText" Text="Кастомизация" VerticalAlignment="Center" 
+                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
+                        </StackPanel>
+                    </ui:Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -471,9 +493,14 @@
                               Visibility="{Binding SelectedTabIndex, ConverterParameter=5, Converter={StaticResource IndexToVisibility}}"
                               DataContext="{Binding}"/>
 
+                <!-- Customization Page -->
+                <pages:CustomizationPage x:Name="CustomizationPage"
+                                        Visibility="{Binding SelectedTabIndex, ConverterParameter=6, Converter={StaticResource IndexToVisibility}}"
+                                        DataContext="{Binding}"/>
+
                 <!-- Add Account Page -->
                 <pages:AddAccountPage x:Name="AddAccountPage"
-                                     Visibility="{Binding SelectedTabIndex, ConverterParameter=6, Converter={StaticResource IndexToVisibility}}" 
+                                     Visibility="{Binding SelectedTabIndex, ConverterParameter=7, Converter={StaticResource IndexToVisibility}}" 
                                      DataContext="{Binding}"/>
             </Grid>
         </Grid>

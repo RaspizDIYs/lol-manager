@@ -107,7 +107,7 @@ public class AccountsStorage : IAccountsStorage
             }
         }
         
-        return _cachedAccounts.OrderBy(a => a.Username);
+        return _cachedAccounts;
     }
 
     public void Save(AccountRecord account)
@@ -117,6 +117,31 @@ public class AccountsStorage : IAccountsStorage
             var list = LoadAll().ToList();
             var existingIdx = list.FindIndex(a => string.Equals(a.Username, account.Username, StringComparison.OrdinalIgnoreCase));
             if (existingIdx >= 0) list[existingIdx] = account; else list.Add(account);
+            
+            // Создаем backup перед сохранением
+            if (File.Exists(_dataFilePath))
+            {
+                var backupPath = _dataFilePath + ".bak";
+                File.Copy(_dataFilePath, backupPath, overwrite: true);
+            }
+            
+            File.WriteAllText(_dataFilePath, JsonConvert.SerializeObject(list, Formatting.Indented));
+            
+            // Обновляем кеш
+            _cachedAccounts = list;
+            _lastFileRead = DateTime.Now;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"Failed to save accounts: {ex.Message}");
+        }
+    }
+
+    public void SaveAccounts(IEnumerable<AccountRecord> accounts)
+    {
+        try
+        {
+            var list = accounts.ToList();
             
             // Создаем backup перед сохранением
             if (File.Exists(_dataFilePath))
@@ -191,7 +216,12 @@ public class AccountsStorage : IAccountsStorage
             Username = acc.Username,
             Password = Unprotect(acc.EncryptedPassword),
             Note = acc.Note,
-            CreatedAt = acc.CreatedAt
+            CreatedAt = acc.CreatedAt,
+            AvatarUrl = acc.AvatarUrl,
+            SummonerName = acc.SummonerName,
+            Rank = acc.Rank,
+            RiotId = acc.RiotId,
+            RankIconUrl = acc.RankIconUrl
         }).ToList();
 
         var accountsJson = JsonConvert.SerializeObject(exportAccounts, Formatting.Indented);
@@ -357,7 +387,12 @@ public class AccountsStorage : IAccountsStorage
                     Username = importAcc.Username,
                     EncryptedPassword = Protect(importAcc.Password),
                     Note = importAcc.Note ?? string.Empty,
-                    CreatedAt = importAcc.CreatedAt
+                    CreatedAt = importAcc.CreatedAt,
+                    AvatarUrl = importAcc.AvatarUrl ?? string.Empty,
+                    SummonerName = importAcc.SummonerName ?? string.Empty,
+                    Rank = importAcc.Rank ?? string.Empty,
+                    RiotId = importAcc.RiotId ?? string.Empty,
+                    RankIconUrl = importAcc.RankIconUrl ?? string.Empty
                 };
                 
                 var existingIdx = existingAccounts.FindIndex(a => 

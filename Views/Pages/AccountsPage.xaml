@@ -64,6 +64,7 @@
             <ui:Button Appearance="Info" Content="{Binding LoginButtonText}" Margin="6,0,0,0" Command="{Binding LoginSelectedCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
             <ui:Button Appearance="Danger" Content="✕ Отменить" Margin="6,0,0,0" Command="{Binding CancelLoginCommand}" IsEnabled="{Binding IsLoggingIn}" />
             <ui:Button Content="Перезапустить" Margin="6,0,0,0" Command="{Binding RestartWithoutLoginCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
+            <ui:Button Appearance="Secondary" Content="Обновить данные" Margin="6,0,0,0" Command="{Binding RefreshAccountInfoCommand}" IsEnabled="{Binding IsLoggingIn, Converter={StaticResource InverseBoolConverter}}" />
             <ui:ToggleSwitch IsChecked="{Binding IsAutoAcceptEnabled}" 
                             Content="Автопринятие" 
                             Margin="16,0,0,0"/>
@@ -238,6 +239,12 @@
                         <Setter Property="BorderThickness" Value="0"/>
                         <Setter Property="Height" Value="56"/>
                         <Setter Property="Margin" Value="3"/>
+                        <Setter Property="AllowDrop" Value="True"/>
+                        <EventSetter Event="PreviewMouseLeftButtonDown" Handler="DataGridRow_PreviewMouseLeftButtonDown"/>
+                        <EventSetter Event="PreviewMouseMove" Handler="DataGridRow_PreviewMouseMove"/>
+                        <EventSetter Event="Drop" Handler="DataGridRow_Drop"/>
+                        <EventSetter Event="DragOver" Handler="DataGridRow_DragOver"/>
+                        <EventSetter Event="DragLeave" Handler="DataGridRow_DragLeave"/>
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="DataGridRow">
@@ -256,52 +263,51 @@
                                             </SelectiveScrollingGrid.RowDefinitions>
                                             <DataGridCellsPresenter Grid.Column="1"
                                                                    Grid.Row="0"
-                                                                   ItemsPanel="{TemplateBinding ItemsPanel}"
                                                                    SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
                                         </SelectiveScrollingGrid>
                                     </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#FF3B82F6" Offset="0"/>
+                                                        <GradientStop Color="#FF1E40AF" Offset="0.3"/>
+                                                        <GradientStop Color="Transparent" Offset="0.7"/>
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="RowBorder" Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#FF6366F1" Offset="0"/>
+                                                        <GradientStop Color="#FF4C1D95" Offset="0.4"/>
+                                                        <GradientStop Color="Transparent" Offset="0.8"/>
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </Trigger>
+                                        <MultiTrigger>
+                                            <MultiTrigger.Conditions>
+                                                <Condition Property="IsSelected" Value="True"/>
+                                                <Condition Property="IsMouseOver" Value="True"/>
+                                            </MultiTrigger.Conditions>
+                                            <Setter TargetName="RowBorder" Property="Background">
+                                                <Setter.Value>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#FF7C3AED" Offset="0"/>
+                                                        <GradientStop Color="#FF5B21B6" Offset="0.5"/>
+                                                        <GradientStop Color="Transparent" Offset="0.9"/>
+                                                    </LinearGradientBrush>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </MultiTrigger>
+                                    </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </Setter.Value>
                         </Setter>
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background">
-                                    <Setter.Value>
-                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                            <GradientStop Color="#FF3B82F6" Offset="0"/>
-                                            <GradientStop Color="#FF1E40AF" Offset="0.3"/>
-                                            <GradientStop Color="Transparent" Offset="0.7"/>
-                                        </LinearGradientBrush>
-                                    </Setter.Value>
-                                </Setter>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background">
-                                    <Setter.Value>
-                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                            <GradientStop Color="#FF6366F1" Offset="0"/>
-                                            <GradientStop Color="#FF4C1D95" Offset="0.4"/>
-                                            <GradientStop Color="Transparent" Offset="0.8"/>
-                                        </LinearGradientBrush>
-                                    </Setter.Value>
-                                </Setter>
-                            </Trigger>
-                            <MultiTrigger>
-                                <MultiTrigger.Conditions>
-                                    <Condition Property="IsSelected" Value="True"/>
-                                    <Condition Property="IsMouseOver" Value="True"/>
-                                </MultiTrigger.Conditions>
-                                <Setter Property="Background">
-                                    <Setter.Value>
-                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                            <GradientStop Color="#FF7C3AED" Offset="0"/>
-                                            <GradientStop Color="#FF5B21B6" Offset="0.5"/>
-                                            <GradientStop Color="Transparent" Offset="0.9"/>
-                                        </LinearGradientBrush>
-                                    </Setter.Value>
-                                </Setter>
-                            </MultiTrigger>
-                        </Style.Triggers>
                     </Style>
                 </ui:DataGrid.RowStyle>
 
@@ -378,6 +384,67 @@
                                           TextWrapping="Wrap" 
                                           VerticalAlignment="Center"
                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    
+                    <DataGridTemplateColumn Header="Аккаунт" Width="200" MinWidth="180">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Border Width="32" Height="32" CornerRadius="16" Margin="0,0,8,0" ClipToBounds="True"
+                                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                        <Image Stretch="UniformToFill"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               RenderOptions.BitmapScalingMode="HighQuality">
+                                            <Image.Source>
+                                                <Binding Path="AvatarUrl" Converter="{StaticResource ImageUrlConverter}">
+                                                    <Binding.TargetNullValue>
+                                                        <BitmapImage UriSource="https://ddragon.leagueoflegends.com/cdn/latest/img/profileicon/0.png"/>
+                                                    </Binding.TargetNullValue>
+                                                </Binding>
+                                            </Image.Source>
+                                        </Image>
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock FontSize="13" 
+                                                  FontWeight="SemiBold"
+                                                  Foreground="{DynamicResource TextFillColorPrimaryBrush}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="{Binding RiotId}"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding RiotId}" Value="{x:Null}">
+                                                            <Setter Property="Text" Value="{Binding SummonerName, TargetNullValue='Не загружено', FallbackValue='Не загружено'}"/>
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding RiotId}" Value="">
+                                                            <Setter Property="Text" Value="{Binding SummonerName, TargetNullValue='Не загружено', FallbackValue='Не загружено'}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Image Width="16" Height="16" Margin="0,0,4,0" VerticalAlignment="Center"
+                                                   Visibility="{Binding RankIconUrl, Converter={StaticResource StringToVisibilityConverter}}">
+                                                <Image.Source>
+                                                    <Binding Path="RankIconUrl" Converter="{StaticResource ImageUrlConverter}"/>
+                                                </Image.Source>
+                                            </Image>
+                                            <TextBlock FontSize="11" 
+                                                      Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                      VerticalAlignment="Center">
+                                                <TextBlock.Text>
+                                                    <Binding Path="Rank">
+                                                        <Binding.TargetNullValue>Ранг не определён</Binding.TargetNullValue>
+                                                        <Binding.FallbackValue>Ранг не определён</Binding.FallbackValue>
+                                                    </Binding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

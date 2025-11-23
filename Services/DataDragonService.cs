@@ -95,6 +95,9 @@ public class DataDragonService
                 var displayName = champ.Value.GetProperty("name").GetString() ?? champ.Name;
                 var id = champ.Value.GetProperty("key").GetString() ?? champ.Name;
                 
+                if (!int.TryParse(id, out var championId))
+                    continue;
+                
                 var tags = new List<string>();
                 if (champ.Value.TryGetProperty("tags", out var tagsArray))
                 {
@@ -108,6 +111,34 @@ public class DataDragonService
                 
                 var aliases = GetChampionAliases(englishName, displayName);
                 
+                var skins = new List<Models.SkinInfo>();
+                if (champ.Value.TryGetProperty("skins", out var skinsArray) && skinsArray.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var skin in skinsArray.EnumerateArray())
+                    {
+                        if (skin.TryGetProperty("id", out var skinIdProp) && 
+                            skin.TryGetProperty("num", out var skinNumProp) &&
+                            skin.TryGetProperty("name", out var skinNameProp))
+                        {
+                            var skinId = skinIdProp.GetInt32();
+                            var skinNum = skinNumProp.GetInt32();
+                            var skinName = skinNameProp.GetString() ?? string.Empty;
+                            
+                            var backgroundSkinId = championId * 1000 + skinNum;
+                            
+                            skins.Add(new Models.SkinInfo
+                            {
+                                Id = skinId,
+                                Name = skinName,
+                                SkinNumber = skinNum,
+                                ChampionName = displayName,
+                                ChampionId = championId,
+                                BackgroundSkinId = backgroundSkinId
+                            });
+                        }
+                    }
+                }
+                
                 var info = new Models.ChampionInfo
                 {
                     DisplayName = displayName,
@@ -115,7 +146,8 @@ public class DataDragonService
                     Id = id,
                     ImageFileName = englishName,
                     Tags = tags,
-                    Aliases = aliases
+                    Aliases = aliases,
+                    Skins = skins
                 };
                 
                 _championInfoCache[displayName] = info;
@@ -148,6 +180,16 @@ public class DataDragonService
             return info.ImageFileName;
         
         return displayName;
+    }
+
+    public string GetChampionSplashartUrl(string displayName, int skinId = 0)
+    {
+        if (_championInfoCache.TryGetValue(displayName, out var info))
+        {
+            return $"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{info.EnglishName}_{skinId}.jpg";
+        }
+        
+        return $"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{displayName}_{skinId}.jpg";
     }
     
     private static List<string> GetChampionAliases(string englishName, string displayName)
@@ -461,5 +503,13 @@ public class DataDragonService
     {
         if (string.IsNullOrWhiteSpace(spellName)) return string.Empty;
         return $"https://ddragon.leagueoflegends.com/cdn/{_latestVersion}/img/spell/{spellName}.png";
+    }
+    
+    public string GetRankIconUrl(string tier)
+    {
+        if (string.IsNullOrWhiteSpace(tier)) return string.Empty;
+        
+        var tierLower = tier.ToUpperInvariant();
+        return $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/{tierLower}.png";
     }
 }

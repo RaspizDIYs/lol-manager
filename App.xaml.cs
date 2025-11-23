@@ -202,6 +202,7 @@ public partial class App : Application
         var runeDataService = new RuneDataService();
         var runePagesStorage = new RunePagesStorage(logger);
         var updateService = new UpdateService(logger, settingsService);
+        var customizationService = new CustomizationService(logger, riotClientService);
         
         _services[typeof(ILogger)] = logger;
         _services[typeof(ISettingsService)] = settingsService;
@@ -211,6 +212,7 @@ public partial class App : Application
         _services[typeof(RuneDataService)] = runeDataService;
         _services[typeof(IRunePagesStorage)] = runePagesStorage;
         _services[typeof(IUpdateService)] = updateService;
+        _services[typeof(CustomizationService)] = customizationService;
     }
 
     public T GetService<T>() where T : class

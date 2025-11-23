@@ -24,7 +24,13 @@ public partial class AutomationViewModel : ObservableObject
     private bool isAutomationEnabled;
 
     [ObservableProperty]
-    private string selectedChampionToPick = "(Не выбрано)";
+    private string selectedChampionToPick1 = "(Не выбрано)";
+
+    [ObservableProperty]
+    private string selectedChampionToPick2 = "(Не выбрано)";
+
+    [ObservableProperty]
+    private string selectedChampionToPick3 = "(Не выбрано)";
 
     [ObservableProperty]
     private string selectedChampionToBan = "(Не выбрано)";
@@ -94,9 +100,11 @@ public partial class AutomationViewModel : ObservableObject
                 return;
             }
             
-            if (e.PropertyName == nameof(SelectedChampionToPick))
+            if (e.PropertyName == nameof(SelectedChampionToPick1) ||
+                e.PropertyName == nameof(SelectedChampionToPick2) ||
+                e.PropertyName == nameof(SelectedChampionToPick3))
             {
-                FilterChampions(); // Обновляем список бана (исключаем пик)
+                FilterChampions(); // Обновляем список бана (исключаем пики)
             }
             else if (e.PropertyName == nameof(SelectedChampionToBan))
             {
@@ -116,7 +124,9 @@ public partial class AutomationViewModel : ObservableObject
             if (e.PropertyName == nameof(IsAutomationEnabled) ||
                 e.PropertyName == nameof(IsPickDelayEnabled) ||
                 e.PropertyName == nameof(PickDelaySeconds) ||
-                e.PropertyName == nameof(SelectedChampionToPick) ||
+                e.PropertyName == nameof(SelectedChampionToPick1) ||
+                e.PropertyName == nameof(SelectedChampionToPick2) ||
+                e.PropertyName == nameof(SelectedChampionToPick3) ||
                 e.PropertyName == nameof(SelectedChampionToBan) ||
                 e.PropertyName == nameof(SelectedSummonerSpell1) ||
                 e.PropertyName == nameof(SelectedSummonerSpell2) ||
@@ -150,7 +160,9 @@ public partial class AutomationViewModel : ObservableObject
             _logger.Info($"Получено {champions.Count} чемпионов и {spells.Count} заклинаний");
             
             // Обновляем списки
-            var currentPickSelection = SelectedChampionToPick;
+            var currentPick1Selection = SelectedChampionToPick1;
+            var currentPick2Selection = SelectedChampionToPick2;
+            var currentPick3Selection = SelectedChampionToPick3;
             var currentBanSelection = SelectedChampionToBan;
             var currentSpell1Selection = SelectedSummonerSpell1;
             var currentSpell2Selection = SelectedSummonerSpell2;
@@ -179,7 +191,9 @@ public partial class AutomationViewModel : ObservableObject
             }
             
             // Восстанавливаем выбор
-            SelectedChampionToPick = Champions.Contains(currentPickSelection) ? currentPickSelection : "(Не выбрано)";
+            SelectedChampionToPick1 = Champions.Contains(currentPick1Selection) ? currentPick1Selection : "(Не выбрано)";
+            SelectedChampionToPick2 = Champions.Contains(currentPick2Selection) ? currentPick2Selection : "(Не выбрано)";
+            SelectedChampionToPick3 = Champions.Contains(currentPick3Selection) ? currentPick3Selection : "(Не выбрано)";
             SelectedChampionToBan = Champions.Contains(currentBanSelection) ? currentBanSelection : "(Не выбрано)";
             SelectedSummonerSpell1 = SummonerSpells.Contains(currentSpell1Selection) ? currentSpell1Selection : "(Не выбрано)";
             SelectedSummonerSpell2 = SummonerSpells.Contains(currentSpell2Selection) ? currentSpell2Selection : "(Не выбрано)";
@@ -213,7 +227,18 @@ public partial class AutomationViewModel : ObservableObject
             IsAutomationEnabled = settings.IsEnabled;
             IsPickDelayEnabled = settings.IsPickDelayEnabled;
             PickDelaySeconds = Math.Clamp(settings.PickDelaySeconds, 0, 30);
-            SelectedChampionToPick = string.IsNullOrWhiteSpace(settings.ChampionToPick) ? "(Не выбрано)" : settings.ChampionToPick;
+            
+            // Обратная совместимость обрабатывается через JSON десериализацию
+            
+            // Обратная совместимость: если ChampionToPick1 пустой, но есть старый ChampionToPick, используем его
+            if (string.IsNullOrWhiteSpace(settings.ChampionToPick1) && !string.IsNullOrWhiteSpace(settings.ChampionToPick))
+            {
+                settings.ChampionToPick1 = settings.ChampionToPick;
+            }
+            
+            SelectedChampionToPick1 = string.IsNullOrWhiteSpace(settings.ChampionToPick1) ? "(Не выбрано)" : settings.ChampionToPick1;
+            SelectedChampionToPick2 = string.IsNullOrWhiteSpace(settings.ChampionToPick2) ? "(Не выбрано)" : settings.ChampionToPick2;
+            SelectedChampionToPick3 = string.IsNullOrWhiteSpace(settings.ChampionToPick3) ? "(Не выбрано)" : settings.ChampionToPick3;
             SelectedChampionToBan = string.IsNullOrWhiteSpace(settings.ChampionToBan) ? "(Не выбрано)" : settings.ChampionToBan;
             SelectedSummonerSpell1 = string.IsNullOrWhiteSpace(settings.SummonerSpell1) ? "(Не выбрано)" : settings.SummonerSpell1;
             SelectedSummonerSpell2 = string.IsNullOrWhiteSpace(settings.SummonerSpell2) ? "(Не выбрано)" : settings.SummonerSpell2;
@@ -231,7 +256,7 @@ public partial class AutomationViewModel : ObservableObject
             }
             UpdateRunePageNames();
             
-            _logger.Info($"✅ Загружены настройки: IsEnabled={IsAutomationEnabled}, Pick={SelectedChampionToPick}, Ban={SelectedChampionToBan}");
+            _logger.Info($"✅ Загружены настройки: IsEnabled={IsAutomationEnabled}, Pick1={SelectedChampionToPick1}, Pick2={SelectedChampionToPick2}, Pick3={SelectedChampionToPick3}, Ban={SelectedChampionToBan}");
         }
         catch (Exception ex)
         {
@@ -262,7 +287,9 @@ public partial class AutomationViewModel : ObservableObject
     {
         _isUpdatingSettings = true;
         
-        var currentPick = SelectedChampionToPick;
+        var currentPick1 = SelectedChampionToPick1;
+        var currentPick2 = SelectedChampionToPick2;
+        var currentPick3 = SelectedChampionToPick3;
         var currentBan = SelectedChampionToBan;
         
         var searchLower = ChampionSearchText?.ToLowerInvariant().Trim() ?? string.Empty;
@@ -291,27 +318,32 @@ public partial class AutomationViewModel : ObservableObject
             baseFilteredList.Add(championName);
         }
         
-        // Список для ПИКА: исключаем выбранного в БАН
+        // Список для ПИКА: исключаем выбранных в БАН и других пиках
+        var excludedPicks = new HashSet<string> { currentBan, currentPick1, currentPick2, currentPick3 };
         FilteredChampionsForPick.Clear();
         foreach (var champion in baseFilteredList)
         {
-            if (champion == "(Не выбрано)" || champion != currentBan)
+            if (champion == "(Не выбрано)" || !excludedPicks.Contains(champion))
             {
                 FilteredChampionsForPick.Add(champion);
             }
         }
         
-        // КРИТИЧНО: Всегда добавляем текущий пик если его нет
-        if (!string.IsNullOrEmpty(currentPick) && currentPick != "(Не выбрано)" && !FilteredChampionsForPick.Contains(currentPick))
+        // КРИТИЧНО: Всегда добавляем текущие пики если их нет
+        foreach (var pick in new[] { currentPick1, currentPick2, currentPick3 })
         {
-            FilteredChampionsForPick.Add(currentPick);
+            if (!string.IsNullOrEmpty(pick) && pick != "(Не выбрано)" && !FilteredChampionsForPick.Contains(pick))
+            {
+                FilteredChampionsForPick.Add(pick);
+            }
         }
         
-        // Список для БАНА: исключаем выбранного в ПИК
+        // Список для БАНА: исключаем выбранных в ПИКАХ
+        var excludedBans = new HashSet<string> { currentPick1, currentPick2, currentPick3 };
         FilteredChampionsForBan.Clear();
         foreach (var champion in baseFilteredList)
         {
-            if (champion == "(Не выбрано)" || champion != currentPick)
+            if (champion == "(Не выбрано)" || !excludedBans.Contains(champion))
             {
                 FilteredChampionsForBan.Add(champion);
             }
@@ -324,7 +356,9 @@ public partial class AutomationViewModel : ObservableObject
         }
         
         // Восстанавливаем выбор
-        SelectedChampionToPick = currentPick;
+        SelectedChampionToPick1 = currentPick1;
+        SelectedChampionToPick2 = currentPick2;
+        SelectedChampionToPick3 = currentPick3;
         SelectedChampionToBan = currentBan;
         
         _isUpdatingSettings = false;
@@ -370,11 +404,15 @@ public partial class AutomationViewModel : ObservableObject
         
         try
         {
-            var pickValue = SelectedChampionToPick == "(Не выбрано)" ? string.Empty : SelectedChampionToPick;
+            var pick1Value = SelectedChampionToPick1 == "(Не выбрано)" ? string.Empty : SelectedChampionToPick1;
+            var pick2Value = SelectedChampionToPick2 == "(Не выбрано)" ? string.Empty : SelectedChampionToPick2;
+            var pick3Value = SelectedChampionToPick3 == "(Не выбрано)" ? string.Empty : SelectedChampionToPick3;
             var banValue = SelectedChampionToBan == "(Не выбрано)" ? string.Empty : SelectedChampionToBan;
-            if (!string.IsNullOrWhiteSpace(pickValue) && pickValue == banValue)
+            
+            var picks = new[] { pick1Value, pick2Value, pick3Value };
+            if (picks.Any(p => !string.IsNullOrWhiteSpace(p) && p == banValue))
             {
-                _logger.Warning($"Одинаковый чемпион в пике и бане ({pickValue}) — сбрасываю бан");
+                _logger.Warning($"Одинаковый чемпион в пике и бане ({banValue}) — сбрасываю бан");
                 banValue = string.Empty;
             }
 
@@ -383,7 +421,9 @@ public partial class AutomationViewModel : ObservableObject
                 IsEnabled = IsAutomationEnabled,
                 IsPickDelayEnabled = IsPickDelayEnabled,
                 PickDelaySeconds = Math.Clamp(PickDelaySeconds, 0, 30),
-                ChampionToPick = pickValue,
+                ChampionToPick1 = pick1Value,
+                ChampionToPick2 = pick2Value,
+                ChampionToPick3 = pick3Value,
                 ChampionToBan = banValue,
                 SummonerSpell1 = SelectedSummonerSpell1 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell1,
                 SummonerSpell2 = SelectedSummonerSpell2 == "(Не выбрано)" ? string.Empty : SelectedSummonerSpell2,
@@ -393,7 +433,7 @@ public partial class AutomationViewModel : ObservableObject
             _settingsService.SaveSetting("AutomationSettings", settings);
             _autoAcceptService.SetAutomationSettings(settings);
             
-            _logger.Info($"💾 Автосохранение: Enabled={settings.IsEnabled}, Pick=[{settings.ChampionToPick}], Ban=[{settings.ChampionToBan}], Spell1=[{settings.SummonerSpell1}], Spell2=[{settings.SummonerSpell2}]");
+            _logger.Info($"💾 Автосохранение: Enabled={settings.IsEnabled}, Pick1=[{settings.ChampionToPick1}], Pick2=[{settings.ChampionToPick2}], Pick3=[{settings.ChampionToPick3}], Ban=[{settings.ChampionToBan}], Spell1=[{settings.SummonerSpell1}], Spell2=[{settings.SummonerSpell2}]");
         }
         catch (Exception ex)
         {
