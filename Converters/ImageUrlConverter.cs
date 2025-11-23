@@ -26,8 +26,8 @@ public class ImageUrlConverter : IValueConverter
             var bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.UriSource = new Uri(urlString, UriKind.Absolute);
-            bitmap.CacheOption = BitmapCacheOption.OnLoad;
-            bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache; // Игнорируем кеш для свежих изображений
+            bitmap.CacheOption = BitmapCacheOption.OnDemand;
+            bitmap.DecodePixelWidth = 400;
             bitmap.DownloadFailed += (s, e) => 
             {
                 // Логируем ошибку загрузки, но не падаем

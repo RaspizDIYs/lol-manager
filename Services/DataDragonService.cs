@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Authentication;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,7 +24,12 @@ public class DataDragonService
     public DataDragonService(ILogger logger)
     {
         _logger = logger;
-        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+        var handler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+            SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+        };
+        _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         _ = EnsureLatestVersionAsync();
     }
     
@@ -90,6 +96,7 @@ public class DataDragonService
             using var doc = JsonDocument.Parse(response);
             
             var tasks = new List<Task>();
+            var semaphore = new SemaphoreSlim(10, 10);
             
             foreach (var champ in doc.RootElement.GetProperty("data").EnumerateObject())
             {
@@ -127,8 +134,8 @@ public class DataDragonService
                 _championInfoCache[displayName] = info;
                 champions[displayName] = id;
                 
-                // Загружаем детальную информацию о чемпионе асинхронно
-                tasks.Add(LoadChampionDetailsAsync(englishName, displayName, championId, version));
+                // Загружаем детальную информацию о чемпионе асинхронно с ограничением параллелизма
+                tasks.Add(LoadChampionDetailsWithSemaphoreAsync(englishName, displayName, championId, version, semaphore));
             }
             
             // Ждем загрузки всех деталей чемпионов
@@ -146,6 +153,19 @@ public class DataDragonService
         finally
         {
             _championLoadLock.Release();
+        }
+    }
+    
+    private async Task LoadChampionDetailsWithSemaphoreAsync(string englishName, string displayName, int championId, string version, SemaphoreSlim semaphore)
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            await LoadChampionDetailsAsync(englishName, displayName, championId, version);
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
     
@@ -175,10 +195,8 @@ public class DataDragonService
                         var skinNum = skinNumProp.GetInt32();
                         var skinName = skinNameProp.GetString() ?? string.Empty;
                         
-                        // Парсим ID скина (формат: "266000", "266001" и т.д.)
                         if (int.TryParse(skinIdStr, out var skinId))
                         {
-                            // backgroundSkinId использует формат: championId * 1000 + skinNum
                             var backgroundSkinId = championId * 1000 + skinNum;
                             
                             skins.Add(new Models.SkinInfo
@@ -196,7 +214,6 @@ public class DataDragonService
             }
             
             info.Skins = skins;
-            _logger.Debug($"Loaded {skins.Count} skins for {displayName}");
         }
         catch (Exception ex)
         {

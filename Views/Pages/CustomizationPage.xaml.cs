@@ -57,16 +57,24 @@ public partial class CustomizationPage : UserControl
         }
     }
     
-    private void BackgroundSkin_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is FrameworkElement element && element.DataContext is Models.SkinInfo skin)
+        private void BackgroundSkin_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
-            if (ViewModel != null)
+            if (sender is FrameworkElement element && element.DataContext is Models.SkinInfo skin)
             {
-                ViewModel.SelectedChampionForBackground = skin.ChampionName;
-                ViewModel.SelectedSkinForBackground = skin;
+                if (ViewModel != null)
+                {
+                    ViewModel.SelectedChampionForBackground = skin.ChampionName;
+                    ViewModel.SelectedSkinForBackground = skin;
+                }
             }
         }
-    }
+
+        private void Image_ImageFailed(object sender, System.Windows.ExceptionRoutedEventArgs e)
+        {
+            if (sender is System.Windows.Controls.Image image)
+            {
+                image.Source = null;
+            }
+        }
 }
 

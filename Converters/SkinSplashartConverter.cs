@@ -23,9 +23,15 @@ public class SkinSplashartConverter : IValueConverter
                         var bitmap = new BitmapImage();
                         bitmap.BeginInit();
                         bitmap.UriSource = new Uri(url, UriKind.Absolute);
-                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                        bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                        bitmap.CacheOption = BitmapCacheOption.OnDemand;
+                        bitmap.DecodePixelWidth = 400;
+                        bitmap.CreateOptions = BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreColorProfile;
+                        bitmap.DownloadFailed += (s, e) => 
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to load skin splashart: {url}");
+                        };
                         bitmap.EndInit();
+                        bitmap.Freeze();
                         return bitmap;
                     }
                     catch
