@@ -408,6 +408,9 @@ public partial class MainWindow : FluentWindow
             LogsText.Visibility = targetWidth > 80 ? Visibility.Visible : Visibility.Collapsed;
             InformationText.Visibility = targetWidth > 80 ? Visibility.Visible : Visibility.Collapsed;
             AutomationText.Visibility = targetWidth > 80 ? Visibility.Visible : Visibility.Collapsed;
+            if (SpyButton.Visibility == Visibility.Visible)
+                SpyText.Visibility = targetWidth > 80 ? Visibility.Visible : Visibility.Collapsed;
+            CustomizationText.Visibility = targetWidth > 80 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex)
         {
@@ -443,14 +446,19 @@ public partial class MainWindow : FluentWindow
         ResetButtonStyle(AutomationButton);
         if (SpyButton.Visibility == Visibility.Visible)
             ResetButtonStyle(SpyButton);
+        ResetButtonStyle(CustomizationButton);
 
         // Выделяем активную кнопку
-        var buttons = new[] { AccountsButton, SettingsButton, LogsButton, InformationButton, AutomationButton, SpyButton };
+        var buttons = new[] { AccountsButton, SettingsButton, LogsButton, InformationButton, AutomationButton, SpyButton, CustomizationButton };
         if (selectedIndex >= 0 && selectedIndex < buttons.Length)
         {
             if (selectedIndex == 5 && SpyButton.Visibility == Visibility.Visible)
             {
                 SetActiveButtonStyle(SpyButton);
+            }
+            else if (selectedIndex == 6)
+            {
+                SetActiveButtonStyle(CustomizationButton);
             }
             else if (selectedIndex < 5)
             {

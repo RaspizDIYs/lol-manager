@@ -84,7 +84,9 @@ public class AutoAcceptService
         if (settings != null && settings.IsEnabled)
         {
             _logger.Info($"🤖 Настройки автоматизации обновлены:");
-            _logger.Info($"  • Чемпион (пик): {settings.ChampionToPick ?? "(не выбрано)"}");
+            _logger.Info($"  • Чемпион (пик 1): {settings.ChampionToPick1 ?? "(не выбрано)"}");
+            _logger.Info($"  • Чемпион (пик 2): {settings.ChampionToPick2 ?? "(не выбрано)"}");
+            _logger.Info($"  • Чемпион (пик 3): {settings.ChampionToPick3 ?? "(не выбрано)"}");
             _logger.Info($"  • Чемпион (бан): {settings.ChampionToBan ?? "(не выбрано)"}");
             _logger.Info($"  • Заклинание 1: {settings.SummonerSpell1 ?? "(не выбрано)"}");
             _logger.Info($"  • Заклинание 2: {settings.SummonerSpell2 ?? "(не выбрано)"}");
@@ -566,13 +568,19 @@ public class AutoAcceptService
             return;
         }
         
-        var pick = _automationSettings.ChampionToPick ?? string.Empty;
+        var pick1 = _automationSettings.ChampionToPick1 ?? string.Empty;
+        var pick2 = _automationSettings.ChampionToPick2 ?? string.Empty;
+        var pick3 = _automationSettings.ChampionToPick3 ?? string.Empty;
         var ban = _automationSettings.ChampionToBan ?? string.Empty;
         
-        if (pick == "(Не выбрано)") pick = string.Empty;
+        if (pick1 == "(Не выбрано)") pick1 = string.Empty;
+        if (pick2 == "(Не выбрано)") pick2 = string.Empty;
+        if (pick3 == "(Не выбрано)") pick3 = string.Empty;
         if (ban == "(Не выбрано)") ban = string.Empty;
         
-        if (string.IsNullOrWhiteSpace(pick) && string.IsNullOrWhiteSpace(ban))
+        var picks = new[] { pick1, pick2, pick3 }.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        
+        if (picks.Count == 0 && string.IsNullOrWhiteSpace(ban))
         {
             return;
         }
@@ -614,7 +622,67 @@ public class AutoAcceptService
         
         int myCell = localCellId.GetInt32();
 
+        // Получаем список забаненных чемпионов
+        var bannedChampionIds = new HashSet<int>();
         if (data.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var actionGroup in actions.EnumerateArray())
+            {
+                foreach (var action in actionGroup.EnumerateArray())
+                {
+                    if (!action.TryGetProperty("type", out var actionType))
+                        continue;
+                    
+                    var type = actionType.GetString();
+                    
+                    // Собираем все завершенные баны
+                    if (type == "ban")
+                    {
+                        if (action.TryGetProperty("completed", out var banCompleted) && banCompleted.GetBoolean())
+                        {
+                            if (action.TryGetProperty("championId", out var banChampId))
+                            {
+                                try
+                                {
+                                    var champId = banChampId.GetInt32();
+                                    if (champId > 0)
+                                    {
+                                        bannedChampionIds.Add(champId);
+                                    }
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Выбираем первый доступный чемпион из списка пиков
+        string? selectedPick = null;
+        if (picks.Count > 0)
+        {
+            foreach (var pick in picks)
+            {
+                var championId = await GetChampionIdByNameAsync(pick);
+                if (championId > 0 && !bannedChampionIds.Contains(championId))
+                {
+                    selectedPick = pick;
+                    break;
+                }
+                else if (championId > 0 && bannedChampionIds.Contains(championId))
+                {
+                    _logger.Info($"🚫 Чемпион [{pick}] забанен, проверяю следующий...");
+                }
+            }
+            
+            if (selectedPick == null && picks.Count > 0)
+            {
+                _logger.Warning($"⚠️ Все выбранные чемпионы забанены: {string.Join(", ", picks)}");
+            }
+        }
+
+        if (data.TryGetProperty("actions", out actions) && actions.ValueKind == JsonValueKind.Array)
         {
             foreach (var actionGroup in actions.EnumerateArray())
             {
@@ -641,9 +709,9 @@ public class AutoAcceptService
                     }
                     else if (type == "pick")
                     {
-                        if (!string.IsNullOrWhiteSpace(pick) && Interlocked.CompareExchange(ref _hasPickedChampion, 1, 0) == 0)
+                        if (!string.IsNullOrWhiteSpace(selectedPick) && Interlocked.CompareExchange(ref _hasPickedChampion, 1, 0) == 0)
                         {
-                            await PickChampionAsync(port, password, actionId, pick);
+                            await PickChampionAsync(port, password, actionId, selectedPick);
                         }
                     }
                 }
@@ -674,7 +742,7 @@ public class AutoAcceptService
         // 5. Устанавливаем руны
         try
         {
-            var championName = _automationSettings?.ChampionToPick;
+            var championName = selectedPick ?? _automationSettings?.ChampionToPick1;
             bool runesApplied = false;
 
             if (false && _automationSettings?.AutoRuneGenerationEnabled == true && !string.IsNullOrWhiteSpace(championName))
@@ -908,12 +976,21 @@ public class AutoAcceptService
             return;
         _lastEnsureCheck = now;
 
-        var desiredPickName = _automationSettings.ChampionToPick;
-        var desiredBanName = _automationSettings.ChampionToBan;
+        var pick1 = _automationSettings.ChampionToPick1 ?? string.Empty;
+        var pick2 = _automationSettings.ChampionToPick2 ?? string.Empty;
+        var pick3 = _automationSettings.ChampionToPick3 ?? string.Empty;
+        if (pick1 == "(Не выбрано)") pick1 = string.Empty;
+        if (pick2 == "(Не выбрано)") pick2 = string.Empty;
+        if (pick3 == "(Не выбрано)") pick3 = string.Empty;
+        
+        var picks = new[] { pick1, pick2, pick3 }.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
+        var desiredBanName = _automationSettings.ChampionToBan ?? string.Empty;
 
         bool hasActions = data.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array;
         if (!hasActions) return;
 
+        // Получаем список забаненных чемпионов
+        var bannedChampionIds = new HashSet<int>();
         long? myPickActionId = null;
         long? myBanActionId = null;
         int currentPickChampionId = 0;
@@ -923,11 +1000,34 @@ public class AutoAcceptService
         {
             foreach (var action in actionGroup.EnumerateArray())
             {
-                if (!action.TryGetProperty("actorCellId", out var actorCell) || actorCell.GetInt32() != myCell)
-                    continue;
                 if (!action.TryGetProperty("type", out var actionType))
                     continue;
+                
                 var type = actionType.GetString();
+                
+                // Собираем все завершенные баны
+                if (type == "ban")
+                {
+                    if (action.TryGetProperty("completed", out var banCompleted) && banCompleted.GetBoolean())
+                    {
+                        if (action.TryGetProperty("championId", out var banChampId))
+                        {
+                            try
+                            {
+                                var champId = banChampId.GetInt32();
+                                if (champId > 0)
+                                {
+                                    bannedChampionIds.Add(champId);
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                
+                if (!action.TryGetProperty("actorCellId", out var actorCell) || actorCell.GetInt32() != myCell)
+                    continue;
+                
                 var actionId = action.GetProperty("id").GetInt64();
                 int actChampId = 0;
                 if (action.TryGetProperty("championId", out var ch))
@@ -948,6 +1048,30 @@ public class AutoAcceptService
         }
 
         using var client = CreateHttpClient(port, password);
+
+        // Выбираем первый доступный чемпион из списка пиков
+        string? desiredPickName = null;
+        if (picks.Count > 0)
+        {
+            foreach (var pick in picks)
+            {
+                var championId = await GetChampionIdByNameAsync(pick);
+                if (championId > 0 && !bannedChampionIds.Contains(championId))
+                {
+                    desiredPickName = pick;
+                    break;
+                }
+                else if (championId > 0 && bannedChampionIds.Contains(championId))
+                {
+                    _logger.Info($"🚫 Ensure: Чемпион [{pick}] забанен, проверяю следующий...");
+                }
+            }
+            
+            if (desiredPickName == null && picks.Count > 0)
+            {
+                _logger.Warning($"⚠️ Ensure: Все выбранные чемпионы забанены: {string.Join(", ", picks)}");
+            }
+        }
 
         if (!string.IsNullOrWhiteSpace(desiredPickName) && myPickActionId.HasValue)
         {

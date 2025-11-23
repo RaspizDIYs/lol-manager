@@ -6,7 +6,9 @@ namespace LolManager.Models;
 
 public class AutomationSettings : INotifyPropertyChanged
 {
-    private string _championToPick = string.Empty;
+    private string _championToPick1 = string.Empty;
+    private string _championToPick2 = string.Empty;
+    private string _championToPick3 = string.Empty;
     private string _championToBan = string.Empty;
     private string _summonerSpell1 = string.Empty;
     private string _summonerSpell2 = string.Empty;
@@ -20,8 +22,32 @@ public class AutomationSettings : INotifyPropertyChanged
 
     public string ChampionToPick
     {
-        get => _championToPick;
-        set => SetProperty(ref _championToPick, value);
+        get => _championToPick1;
+        set
+        {
+            if (string.IsNullOrWhiteSpace(_championToPick1))
+            {
+                SetProperty(ref _championToPick1, value);
+            }
+        }
+    }
+
+    public string ChampionToPick1
+    {
+        get => _championToPick1;
+        set => SetProperty(ref _championToPick1, value);
+    }
+
+    public string ChampionToPick2
+    {
+        get => _championToPick2;
+        set => SetProperty(ref _championToPick2, value);
+    }
+
+    public string ChampionToPick3
+    {
+        get => _championToPick3;
+        set => SetProperty(ref _championToPick3, value);
     }
 
     public string ChampionToBan

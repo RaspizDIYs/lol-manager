@@ -57,6 +57,7 @@ public interface IRiotClientService
     Task<List<LcuRunePage>> GetRunePagesAsync();
     Task<string?> GetCurrentSummonerNameAsync();
     Task<string> GetCurrentSummonerPuuidAsync();
+    Task<(string AvatarUrl, string SummonerName, string Rank, string RiotId, string RankIconUrl, string? Username)?> GetAccountInfoAsync();
 
     /// <summary>
     /// Пробивает состояние подключения к клиенту (RC/LCU), ищет lockfile в кастомных местах.

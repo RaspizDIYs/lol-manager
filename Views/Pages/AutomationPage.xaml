@@ -153,12 +153,13 @@
 
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition/>
-                        <ColumnDefinition/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition/>
-                        <RowDefinition/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     
                     <!-- Поиск чемпиона -->
@@ -181,17 +182,51 @@
                                    FontWeight="SemiBold" 
                                    Margin="0,0,0,6"/>
                         <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
-                                  SelectedItem="{Binding SelectedChampionToPick, Mode=TwoWay}"
+                                  SelectedItem="{Binding SelectedChampionToPick1, Mode=TwoWay}"
                                   IsEnabled="{Binding IsAutomationEnabled}"
                                   MaxDropDownHeight="350"
                                   ItemTemplate="{StaticResource ChampionTemplate}"
-                                  Margin="0,0,0,16">
+                                  Margin="0,0,0,4">
                             <ComboBox.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <VirtualizingStackPanel/>
                                 </ItemsPanelTemplate>
                             </ComboBox.ItemsPanel>
                         </ComboBox>
+                        <TextBlock Text="Выбор 2 и 3 используются при блокировке вашего препикнутого чемпиона"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,0"/>
+                        
+                        <!-- Резервные варианты -->
+                        <StackPanel Margin="0,8,0,0">
+                            <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
+                                      SelectedItem="{Binding SelectedChampionToPick2, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      MaxDropDownHeight="350"
+                                      ItemTemplate="{StaticResource ChampionTemplate}"
+                                      Margin="0,0,0,4"
+                                      FontSize="11">
+                                <ComboBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ComboBox.ItemsPanel>
+                            </ComboBox>
+                            <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
+                                      SelectedItem="{Binding SelectedChampionToPick3, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      MaxDropDownHeight="350"
+                                      ItemTemplate="{StaticResource ChampionTemplate}"
+                                      FontSize="11">
+                                <ComboBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ComboBox.ItemsPanel>
+                            </ComboBox>
+                        </StackPanel>
                     </StackPanel>
                
                     <!-- Автобан чемпиона -->

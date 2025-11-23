@@ -7,6 +7,7 @@ public interface IAccountsStorage
 {
     IEnumerable<AccountRecord> LoadAll();
     void Save(AccountRecord account);
+    void SaveAccounts(IEnumerable<AccountRecord> accounts);
     void Delete(string username);
 
     string Protect(string plain);

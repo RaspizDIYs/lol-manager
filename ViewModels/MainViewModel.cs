@@ -434,6 +434,13 @@ public partial class MainViewModel : ObservableObject
 		
 		// Автоматическая проверка обновлений
 		_ = Task.Run(async () => await CheckForUpdatesAsync());
+		
+		// Автоматическая загрузка данных аккаунтов при запуске (если LCU подключен)
+		_ = Task.Run(async () =>
+		{
+			await Task.Delay(5000); // Ждем 5 секунд после запуска
+			await AutoLoadAccountInfoAsync();
+		});
 	}
 
 	[RelayCommand]
@@ -779,6 +786,9 @@ public partial class MainViewModel : ObservableObject
 		try { cts.Dispose(); } catch { }
 	}
 
+	private bool _lastLcuConnectedState = false;
+	private DateTime _lastAccountInfoUpdate = DateTime.MinValue;
+
 	private async Task ConnectivityLoopAsync(System.Threading.CancellationToken token)
 	{
 		while (!token.IsCancellationRequested)
@@ -797,8 +807,18 @@ public partial class MainViewModel : ObservableObject
 						// Не показываем тост при норме
 						_lastConnectionIssueToast = string.Empty;
 						_lastConnectionIssueAt = DateTime.MinValue;
+						
+						// Автоматически загружаем данные об аккаунте при подключении LCU
+						if (!_lastLcuConnectedState || (DateTime.UtcNow - _lastAccountInfoUpdate).TotalMinutes > 5)
+						{
+							_lastLcuConnectedState = true;
+							_ = Task.Run(async () => await AutoLoadAccountInfoAsync());
+						}
+						
 						return;
 					}
+					
+					_lastLcuConnectedState = false;
 
 					// Человечные тексты
 					string msg;
@@ -994,6 +1014,52 @@ public partial class MainViewModel : ObservableObject
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
             await _riotClientService.LoginAsync(SelectedAccount.Username, password, _loginCts.Token);
             
+            LoginStatus = "Получение информации об аккаунте...";
+            
+            await Task.Delay(3000, _loginCts.Token);
+            
+            var accountInfo = await _riotClientService.GetAccountInfoAsync();
+            if (accountInfo.HasValue && SelectedAccount != null)
+            {
+                var expectedUsername = SelectedAccount.Username;
+                var loggedInUsername = accountInfo.Value.Username;
+                
+                // Проверяем, что вошли именно в тот аккаунт, который был выбран
+                bool usernameMatches = false;
+                if (!string.IsNullOrEmpty(loggedInUsername))
+                {
+                    // Сравниваем username без учета регистра и пробелов
+                    usernameMatches = string.Equals(
+                        expectedUsername.Trim(), 
+                        loggedInUsername.Trim(), 
+                        StringComparison.OrdinalIgnoreCase);
+                    
+                    if (!usernameMatches)
+                    {
+                        _logger.Warning($"Username mismatch! Expected: {expectedUsername}, Got: {loggedInUsername}. Skipping data update to prevent wrong account assignment.");
+                        LoginStatus = $"Предупреждение: вошли в другой аккаунт ({loggedInUsername})";
+                        await Task.Delay(3000, _loginCts.Token);
+                        LoginStatus = string.Empty;
+                        return;
+                    }
+                }
+                
+                _logger.Info($"Loading account info for {SelectedAccount.Username}: RiotId={accountInfo.Value.RiotId}, SummonerName={accountInfo.Value.SummonerName}, Rank={accountInfo.Value.Rank}, AvatarUrl={accountInfo.Value.AvatarUrl}, RankIconUrl={accountInfo.Value.RankIconUrl}, Username={loggedInUsername}");
+                
+                // Обновляем данные только для выбранного аккаунта
+                SelectedAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
+                SelectedAccount.SummonerName = accountInfo.Value.SummonerName;
+                SelectedAccount.Rank = accountInfo.Value.Rank;
+                SelectedAccount.RiotId = accountInfo.Value.RiotId;
+                SelectedAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
+                _accountsStorage.SaveAccounts(Accounts);
+                _logger.Info($"Account info updated for {SelectedAccount.Username}: {accountInfo.Value.RiotId} ({accountInfo.Value.Rank})");
+            }
+            else if (SelectedAccount != null)
+            {
+                _logger.Warning($"Failed to get account info for {SelectedAccount.Username}");
+            }
+            
             LoginStatus = "Готово! Вход выполнен успешно";
             
             HasConnectionIssue = false;
@@ -1038,6 +1104,179 @@ public partial class MainViewModel : ObservableObject
     {
         try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = _logger.LogFilePath, UseShellExecute = true }); }
         catch { }
+    }
+
+    private async Task AutoLoadAccountInfoAsync()
+    {
+        if (IsLoggingIn) return;
+        
+        try
+        {
+            var accountInfo = await _riotClientService.GetAccountInfoAsync();
+            if (!accountInfo.HasValue)
+            {
+                _logger.Debug("AutoLoadAccountInfoAsync: No account info returned from LCU");
+                return;
+            }
+            
+            _logger.Info($"AutoLoadAccountInfoAsync: Got account info - RiotId={accountInfo.Value.RiotId}, SummonerName={accountInfo.Value.SummonerName}, Rank={accountInfo.Value.Rank}, AvatarUrl={accountInfo.Value.AvatarUrl}, RankIconUrl={accountInfo.Value.RankIconUrl}, Username={accountInfo.Value.Username}");
+            
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                AccountRecord? matchingAccount = null;
+                
+                // Сначала ищем по username (самый надежный способ)
+                if (!string.IsNullOrEmpty(accountInfo.Value.Username))
+                {
+                    matchingAccount = Accounts.FirstOrDefault(a => 
+                        string.Equals(a.Username.Trim(), accountInfo.Value.Username.Trim(), StringComparison.OrdinalIgnoreCase));
+                    
+                    if (matchingAccount != null)
+                    {
+                        _logger.Info($"AutoLoadAccountInfoAsync: Found matching account by Username: {matchingAccount.Username}");
+                    }
+                }
+                
+                // Если не нашли по username, ищем по RiotId
+                if (matchingAccount == null && !string.IsNullOrEmpty(accountInfo.Value.RiotId))
+                {
+                    matchingAccount = Accounts.FirstOrDefault(a => 
+                        !string.IsNullOrEmpty(a.RiotId) && a.RiotId == accountInfo.Value.RiotId);
+                    
+                    if (matchingAccount != null)
+                    {
+                        _logger.Info($"AutoLoadAccountInfoAsync: Found matching account by RiotId: {matchingAccount.Username}");
+                    }
+                }
+                
+                if (matchingAccount == null)
+                {
+                    _logger.Debug($"AutoLoadAccountInfoAsync: No matching account found for Username={accountInfo.Value.Username}, RiotId={accountInfo.Value.RiotId}. Skipping auto-update.");
+                    return;
+                }
+                
+                // Обновляем данные только если они изменились
+                bool needsUpdate = false;
+                
+                if (matchingAccount.AvatarUrl != accountInfo.Value.AvatarUrl && !string.IsNullOrEmpty(accountInfo.Value.AvatarUrl))
+                {
+                    matchingAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
+                    needsUpdate = true;
+                    _logger.Info($"AutoLoadAccountInfoAsync: Updated AvatarUrl to {accountInfo.Value.AvatarUrl}");
+                }
+                
+                if (matchingAccount.SummonerName != accountInfo.Value.SummonerName && !string.IsNullOrEmpty(accountInfo.Value.SummonerName))
+                {
+                    matchingAccount.SummonerName = accountInfo.Value.SummonerName;
+                    needsUpdate = true;
+                }
+                
+                if (matchingAccount.Rank != accountInfo.Value.Rank && !string.IsNullOrEmpty(accountInfo.Value.Rank))
+                {
+                    matchingAccount.Rank = accountInfo.Value.Rank;
+                    needsUpdate = true;
+                    _logger.Info($"AutoLoadAccountInfoAsync: Updated Rank to {accountInfo.Value.Rank}");
+                }
+                
+                if (matchingAccount.RiotId != accountInfo.Value.RiotId && !string.IsNullOrEmpty(accountInfo.Value.RiotId))
+                {
+                    matchingAccount.RiotId = accountInfo.Value.RiotId;
+                    needsUpdate = true;
+                }
+                
+                if (matchingAccount.RankIconUrl != accountInfo.Value.RankIconUrl && !string.IsNullOrEmpty(accountInfo.Value.RankIconUrl))
+                {
+                    matchingAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
+                    needsUpdate = true;
+                    _logger.Info($"AutoLoadAccountInfoAsync: Updated RankIconUrl to {accountInfo.Value.RankIconUrl}");
+                }
+                
+                if (needsUpdate)
+                {
+                    _accountsStorage.SaveAccounts(Accounts);
+                    _logger.Info($"Auto-updated account info for {matchingAccount.Username}: {accountInfo.Value.RiotId} ({accountInfo.Value.Rank})");
+                    _lastAccountInfoUpdate = DateTime.UtcNow;
+                }
+                else
+                {
+                    _logger.Debug($"AutoLoadAccountInfoAsync: No updates needed for {matchingAccount.Username}");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to auto-load account info: {ex.Message}");
+        }
+    }
+
+    public void SaveAccountsOrder()
+    {
+        _accountsStorage.SaveAccounts(Accounts);
+        _logger.Info("Account order saved");
+    }
+
+    [RelayCommand]
+    private async Task RefreshAccountInfo()
+    {
+        if (IsLoggingIn || SelectedAccount == null) return;
+        
+        try
+        {
+            LoginStatus = "Обновление данных аккаунта...";
+            
+            var accountInfo = await _riotClientService.GetAccountInfoAsync();
+            if (!accountInfo.HasValue)
+            {
+                LoginStatus = "Не удалось получить данные из клиента";
+                await Task.Delay(2000);
+                LoginStatus = string.Empty;
+                return;
+            }
+            
+            var loggedInUsername = accountInfo.Value.Username;
+            var expectedUsername = SelectedAccount.Username;
+            
+            // Проверяем соответствие username
+            bool usernameMatches = false;
+            if (!string.IsNullOrEmpty(loggedInUsername))
+            {
+                usernameMatches = string.Equals(
+                    expectedUsername.Trim(), 
+                    loggedInUsername.Trim(), 
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            
+            if (!usernameMatches)
+            {
+                _logger.Warning($"RefreshAccountInfo: Username mismatch! Expected: {expectedUsername}, Got: {loggedInUsername}");
+                LoginStatus = $"Предупреждение: в клиенте открыт другой аккаунт ({loggedInUsername ?? "неизвестно"})";
+                await Task.Delay(3000);
+                LoginStatus = string.Empty;
+                return;
+            }
+            
+            // Обновляем данные для выбранного аккаунта
+            _logger.Info($"RefreshAccountInfo: Updating data for {SelectedAccount.Username}: RiotId={accountInfo.Value.RiotId}, SummonerName={accountInfo.Value.SummonerName}, Rank={accountInfo.Value.Rank}");
+            
+            SelectedAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
+            SelectedAccount.SummonerName = accountInfo.Value.SummonerName;
+            SelectedAccount.Rank = accountInfo.Value.Rank;
+            SelectedAccount.RiotId = accountInfo.Value.RiotId;
+            SelectedAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
+            
+            _accountsStorage.SaveAccounts(Accounts);
+            
+            LoginStatus = "Данные обновлены";
+            await Task.Delay(1500);
+            LoginStatus = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to refresh account info: {ex.Message}");
+            LoginStatus = $"Ошибка: {ex.Message}";
+            await Task.Delay(3000);
+            LoginStatus = string.Empty;
+        }
     }
 
     [RelayCommand]

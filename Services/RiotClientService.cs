@@ -3489,6 +3489,139 @@ public partial class RiotClientService : IRiotClientService
         }
     }
 
+    public async Task<(string AvatarUrl, string SummonerName, string Rank, string RiotId, string RankIconUrl, string? Username)?> GetAccountInfoAsync()
+    {
+        try
+        {
+            var lcu = FindLockfile("LCU");
+            if (lcu == null) return null;
+            
+            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            
+            // Получаем информацию о текущей сессии для проверки username
+            string? loggedInUsername = null;
+            try
+            {
+                var sessionResp = await client.GetAsync("/lol-login/v1/session");
+                if (sessionResp.IsSuccessStatusCode)
+                {
+                    var sessionJson = await sessionResp.Content.ReadAsStringAsync();
+                    using var sessionDoc = JsonDocument.Parse(sessionJson);
+                    var sessionRoot = sessionDoc.RootElement;
+                    if (sessionRoot.TryGetProperty("username", out var usernameProp))
+                    {
+                        loggedInUsername = usernameProp.GetString();
+                    }
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки получения сессии
+            }
+            
+            var summonerResp = await client.GetAsync("/lol-summoner/v1/current-summoner");
+            if (!summonerResp.IsSuccessStatusCode) return null;
+            
+            var summonerJson = await summonerResp.Content.ReadAsStringAsync();
+            using var summonerDoc = JsonDocument.Parse(summonerJson);
+            var summonerRoot = summonerDoc.RootElement;
+            
+            var summonerName = summonerRoot.TryGetProperty("displayName", out var nameProp) 
+                ? nameProp.GetString() ?? string.Empty 
+                : string.Empty;
+            
+            var gameName = summonerRoot.TryGetProperty("gameName", out var gameNameProp) 
+                ? gameNameProp.GetString() ?? string.Empty 
+                : string.Empty;
+            
+            var tagLine = summonerRoot.TryGetProperty("tagLine", out var tagLineProp) 
+                ? tagLineProp.GetString() ?? string.Empty 
+                : string.Empty;
+            
+            var riotId = string.IsNullOrEmpty(gameName) || string.IsNullOrEmpty(tagLine)
+                ? summonerName
+                : $"{gameName}#{tagLine}";
+            
+            var profileIconId = summonerRoot.TryGetProperty("profileIconId", out var iconProp) 
+                ? iconProp.GetInt32() 
+                : 0;
+            
+            var avatarUrl = $"https://ddragon.leagueoflegends.com/cdn/latest/img/profileicon/{profileIconId}.png";
+            
+            var summonerId = summonerRoot.TryGetProperty("summonerId", out var idProp) 
+                ? idProp.GetInt64() 
+                : 0;
+            
+            string rank = string.Empty;
+            string tier = string.Empty;
+            if (summonerId > 0)
+            {
+                try
+                {
+                    var rankedResp = await client.GetAsync($"/lol-ranked/v1/ranked-stats/{summonerId}");
+                    if (rankedResp.IsSuccessStatusCode)
+                    {
+                        var rankedJson = await rankedResp.Content.ReadAsStringAsync();
+                        using var rankedDoc = JsonDocument.Parse(rankedJson);
+                        var rankedRoot = rankedDoc.RootElement;
+                        
+                        if (rankedRoot.TryGetProperty("queues", out var queues) && queues.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var queue in queues.EnumerateArray())
+                            {
+                                if (queue.TryGetProperty("queueType", out var queueType) && 
+                                    queueType.GetString() == "RANKED_SOLO_5x5")
+                                {
+                                    if (queue.TryGetProperty("tier", out var tierProp) && 
+                                        queue.TryGetProperty("rank", out var rankProp))
+                                    {
+                                        tier = tierProp.GetString() ?? string.Empty;
+                                        var rankStr = rankProp.GetString() ?? string.Empty;
+                                        rank = $"{tier} {rankStr}".Trim();
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if (string.IsNullOrEmpty(rank))
+                            {
+                                foreach (var queue in queues.EnumerateArray())
+                                {
+                                    if (queue.TryGetProperty("tier", out var tierProp) && 
+                                        queue.TryGetProperty("rank", out var rankProp))
+                                    {
+                                        tier = tierProp.GetString() ?? string.Empty;
+                                        var rankStr = rankProp.GetString() ?? string.Empty;
+                                        rank = $"{tier} {rankStr}".Trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                }
+            }
+            
+            string rankIconUrl = string.Empty;
+            if (!string.IsNullOrEmpty(tier))
+            {
+                // Data Dragon использует формат: Emblem_{Tier}.png (например, Emblem_Iron.png, Emblem_Gold.png)
+                // tier приходит как "IRON", "GOLD", "PLATINUM" и т.д. (все заглавные)
+                var tierFormatted = tier.Split(' ')[0].ToUpperInvariant(); // Берем только название ранга без цифры (например, "IRON" из "IRON IV")
+                rankIconUrl = $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/Emblem_{tierFormatted}.png";
+            }
+            
+            return (avatarUrl, summonerName, rank, riotId, rankIconUrl, loggedInUsername);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<string> GetCurrentSummonerPuuidAsync()
     {
         try
