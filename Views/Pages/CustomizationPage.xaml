@@ -10,8 +10,10 @@
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <converters:ChampionImageConverter x:Key="ChampionImageConverter"/>
         <converters:ChampionSplashartConverter x:Key="ChampionSplashartConverter"/>
+        <converters:SkinSplashartConverter x:Key="SkinSplashartConverter"/>
         <converters:ChallengeIconConverter x:Key="ChallengeIconConverter"/>
         <converters:MultiObjectEqualityConverter x:Key="MultiObjectEqualityConverter"/>
+        <converters:ImageUrlConverter x:Key="ImageUrlConverter"/>
         
         <DataTemplate x:Key="ChampionTemplate">
             <StackPanel Orientation="Horizontal">
@@ -72,6 +74,62 @@
                                    FontWeight="SemiBold"
                                    Margin="8,4"
                                    TextTrimming="CharacterEllipsis"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        
+        <DataTemplate x:Key="BackgroundSkinTemplate">
+            <Border CornerRadius="8"
+                    Margin="4"
+                    Width="200"
+                    Height="120"
+                    ClipToBounds="True"
+                    Cursor="Hand"
+                    MouseLeftButtonDown="BackgroundSkin_MouseLeftButtonDown">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}"/>
+                        <Setter Property="BorderThickness" Value="1"/>
+                        <Style.Triggers>
+                            <DataTrigger Value="True">
+                                <DataTrigger.Binding>
+                                    <MultiBinding Converter="{StaticResource MultiObjectEqualityConverter}">
+                                        <Binding ElementName="CustomizationPageRoot" Path="ViewModel.SelectedSkinForBackground"/>
+                                        <Binding Path="."/>
+                                    </MultiBinding>
+                                </DataTrigger.Binding>
+                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                <Setter Property="BorderThickness" Value="3"/>
+                            </DataTrigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                <Setter Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Image Stretch="UniformToFill"
+                           Opacity="0.7"
+                           RenderOptions.BitmapScalingMode="HighQuality">
+                        <Image.Source>
+                            <Binding Path="." Converter="{StaticResource SkinSplashartConverter}"/>
+                        </Image.Source>
+                    </Image>
+                    <Border Background="#80000000" VerticalAlignment="Bottom">
+                        <StackPanel Margin="8,4">
+                            <TextBlock Text="{Binding ChampionName}"
+                                       Foreground="White"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Name}"
+                                       Foreground="#CCFFFFFF"
+                                       FontSize="10"
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
                     </Border>
                 </Grid>
             </Border>
@@ -196,8 +254,8 @@
                                 Margin="0,0,0,12"/>
                     
                     <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
-                        <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredChampions}"
-                                      ItemTemplate="{StaticResource BackgroundChampionTemplate}">
+                        <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredSkins}"
+                                      ItemTemplate="{StaticResource BackgroundSkinTemplate}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <WrapPanel Orientation="Horizontal"/>

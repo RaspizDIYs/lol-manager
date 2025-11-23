@@ -56,5 +56,17 @@ public partial class CustomizationPage : UserControl
             }
         }
     }
+    
+    private void BackgroundSkin_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is Models.SkinInfo skin)
+        {
+            if (ViewModel != null)
+            {
+                ViewModel.SelectedChampionForBackground = skin.ChampionName;
+                ViewModel.SelectedSkinForBackground = skin;
+            }
+        }
+    }
 }
 

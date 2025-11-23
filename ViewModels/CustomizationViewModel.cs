@@ -38,6 +38,8 @@ public partial class CustomizationViewModel : ObservableObject
 
     public ObservableCollection<string> Champions { get; } = new();
     public ObservableCollection<string> FilteredChampions { get; } = new();
+    public ObservableCollection<Models.SkinInfo> AllSkins { get; } = new();
+    public ObservableCollection<Models.SkinInfo> FilteredSkins { get; } = new();
     public ObservableCollection<ChallengeInfo> Challenges { get; } = new();
     public ObservableCollection<ChallengeInfo> FilteredChallenges { get; } = new();
     
@@ -112,9 +114,20 @@ public partial class CustomizationViewModel : ObservableObject
             
             Champions.Clear();
             Champions.Add("(Не выбрано)");
+            AllSkins.Clear();
+            
             foreach (var champ in champions.Keys.OrderBy(x => x))
             {
                 Champions.Add(champ);
+                
+                var info = _dataDragonService.GetChampionInfo(champ);
+                if (info != null && info.Skins.Count > 0)
+                {
+                    foreach (var skin in info.Skins.OrderBy(s => s.SkinNumber))
+                    {
+                        AllSkins.Add(skin);
+                    }
+                }
             }
             
             FilterBackgrounds();
@@ -162,6 +175,8 @@ public partial class CustomizationViewModel : ObservableObject
         FilteredChampions.Clear();
         FilteredChampions.Add("(Не выбрано)");
         
+        FilteredSkins.Clear();
+        
         foreach (var championName in Champions)
         {
             if (championName == "(Не выбрано)") continue;
@@ -169,24 +184,32 @@ public partial class CustomizationViewModel : ObservableObject
             var info = _dataDragonService.GetChampionInfo(championName);
             if (info == null) continue;
             
-            if (hasSearch)
+            bool championMatches = !hasSearch || 
+                info.DisplayName.ToLowerInvariant().Contains(searchLower) ||
+                info.EnglishName.ToLowerInvariant().Contains(searchLower) ||
+                info.Aliases.Any(alias => alias.Contains(searchLower));
+            
+            if (championMatches)
             {
-                bool matches = info.DisplayName.ToLowerInvariant().Contains(searchLower) ||
-                              info.EnglishName.ToLowerInvariant().Contains(searchLower) ||
-                              info.Aliases.Any(alias => alias.Contains(searchLower));
-                
-                if (!matches) continue;
+                FilteredChampions.Add(championName);
             }
             
-            FilteredChampions.Add(championName);
+            // Добавляем все скины этого чемпиона в фильтрованный список
+            foreach (var skin in info.Skins.OrderBy(s => s.SkinNumber))
+            {
+                bool skinMatches = !hasSearch || 
+                    championMatches ||
+                    skin.Name.ToLowerInvariant().Contains(searchLower) ||
+                    info.DisplayName.ToLowerInvariant().Contains(searchLower);
+                
+                if (skinMatches)
+                {
+                    FilteredSkins.Add(skin);
+                }
+            }
         }
         
-        if (!string.IsNullOrEmpty(SelectedChampionForBackground) && 
-            SelectedChampionForBackground != "(Не выбрано)" && 
-            !FilteredChampions.Contains(SelectedChampionForBackground))
-        {
-            FilteredChampions.Add(SelectedChampionForBackground);
-        }
+        UpdateAvailableSkins();
     }
 
     private void FilterChallenges()
