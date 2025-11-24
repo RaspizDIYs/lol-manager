@@ -191,17 +191,45 @@ public class AccountsStorage : IAccountsStorage
     public string Protect(string plain)
     {
         if (string.IsNullOrEmpty(plain)) return string.Empty;
-        var bytes = Encoding.UTF8.GetBytes(plain);
-        var protectedBytes = ProtectedData.Protect(bytes, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
-        return Convert.ToBase64String(protectedBytes);
+        
+        try
+        {
+            var bytes = Encoding.UTF8.GetBytes(plain);
+            var protectedBytes = ProtectedData.Protect(bytes, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+            return Convert.ToBase64String(protectedBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"Ошибка при шифровании пароля: {ex.Message}");
+            return string.Empty;
+        }
     }
 
     public string Unprotect(string encrypted)
     {
         if (string.IsNullOrEmpty(encrypted)) return string.Empty;
-        var protectedBytes = Convert.FromBase64String(encrypted);
-        var bytes = ProtectedData.Unprotect(protectedBytes, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
-        return Encoding.UTF8.GetString(bytes);
+        
+        try
+        {
+            var protectedBytes = Convert.FromBase64String(encrypted);
+            var bytes = ProtectedData.Unprotect(protectedBytes, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(bytes);
+        }
+        catch (FormatException ex)
+        {
+            _logger?.Error($"Неверный формат зашифрованного пароля: {ex.Message}");
+            return string.Empty;
+        }
+        catch (CryptographicException ex)
+        {
+            _logger?.Error($"Не удалось расшифровать пароль (возможно, зашифрован другим пользователем): {ex.Message}");
+            return string.Empty;
+        }
+        catch (Exception ex)
+        {
+            _logger?.Error($"Ошибка при расшифровке пароля: {ex.Message}");
+            return string.Empty;
+        }
     }
 
     public void ExportAccounts(string filePath, IEnumerable<AccountRecord>? selectedAccounts = null)

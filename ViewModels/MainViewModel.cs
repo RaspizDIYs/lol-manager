@@ -159,24 +159,20 @@ public partial class MainViewModel : ObservableObject
             new("Закрыть приложение", CloseBehavior.ExitApp)
         };
 
+	private AutoAcceptMethod _autoAcceptMethod = AutoAcceptMethod.Polling;
+	
 	public AutoAcceptMethod AutoAcceptMethod
 	{
-		get
-		{
-			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-			return AutoAcceptMethodExtensions.Parse(settings.AutoAcceptMethod);
-		}
+		get => _autoAcceptMethod;
 		set
 		{
-			var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
-			var currentMethod = AutoAcceptMethodExtensions.Parse(settings.AutoAcceptMethod);
-        
-			if (currentMethod != value)
+			if (SetProperty(ref _autoAcceptMethod, value))
 			{
+				var settings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
 				settings.AutoAcceptMethod = value.ToString();
 				_settingsService.SaveSetting("AutomationSettings", settings);
 				_autoAcceptService.SetAutomationSettings(settings);
-				OnPropertyChanged();
+				_logger.Info($"Метод автопринятия изменен на: {value}");
 			}
 		}
 	}
@@ -344,6 +340,10 @@ public partial class MainViewModel : ObservableObject
 		// Загружаем состояние автоматизации
 		var automationSettings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
 		_isAutomationEnabled = automationSettings.IsEnabled;
+		
+		// Загружаем метод автопринятия
+		_autoAcceptMethod = AutoAcceptMethodExtensions.Parse(automationSettings.AutoAcceptMethod);
+		_logger.Info($"Загружен метод автопринятия: {_autoAcceptMethod}");
 		
 		// Загружаем состояние автопринятия
 		_isAutoAcceptEnabled = _settingsService.LoadSetting("IsAutoAcceptEnabled", false);
@@ -583,7 +583,29 @@ public partial class MainViewModel : ObservableObject
 		EditingAccount = SelectedAccount;
 		NewUsername = SelectedAccount.Username;
 		NewNote = SelectedAccount.Note;
-		NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
+		
+		try
+		{
+			if (!string.IsNullOrEmpty(SelectedAccount.EncryptedPassword))
+			{
+				NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
+				if (string.IsNullOrEmpty(NewPassword))
+				{
+					_logger.Warning($"Не удалось расшифровать пароль для аккаунта {SelectedAccount.Username}");
+				}
+			}
+			else
+			{
+				NewPassword = string.Empty;
+				_logger.Warning($"EncryptedPassword пустой для аккаунта {SelectedAccount.Username}");
+			}
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"Ошибка при расшифровке пароля для {SelectedAccount.Username}: {ex.Message}");
+			NewPassword = string.Empty;
+		}
+		
 		SelectedTabIndex = 7;
 	}
 
@@ -671,7 +693,7 @@ public partial class MainViewModel : ObservableObject
 			
 			if (hasUpdates)
 			{
-				Application.Current.Dispatcher.Invoke(() =>
+				await Application.Current.Dispatcher.InvokeAsync(() =>
 				{
 					var updateWindow = new UpdateWindow(_updateService.Value);
 					updateWindow.Owner = Application.Current.MainWindow;
@@ -823,7 +845,7 @@ public partial class MainViewModel : ObservableObject
 			try
 			{
 				var status = await _riotClientService.ProbeConnectivityAsync();
-				Application.Current.Dispatcher.Invoke(() =>
+				await Application.Current.Dispatcher.InvokeAsync(() =>
 				{
 					// Показываем дружелюбный тост, если есть проблема; иначе скрываем
 					// Если всё ок – не показываем ничего
@@ -943,7 +965,7 @@ public partial class MainViewModel : ObservableObject
 					_logsLastLength = fs.Length;
 					var linesInit = SplitLines(initContent);
 					// Добавляем строки в обратном порядке: новейшие (из конца файла) сверху
-					Application.Current.Dispatcher.Invoke(() =>
+					await Application.Current.Dispatcher.InvokeAsync(() =>
 					{
 						// Читаем строки из файла (старые сверху, новые снизу)
 						// Добавляем в обратном порядке, чтобы новые оказались сверху в UI
@@ -970,7 +992,7 @@ public partial class MainViewModel : ObservableObject
 					_logsPartial = trailingPartial; // сохранить незавершённую строку
 					if (newLines.Count > 0)
 					{
-						Application.Current.Dispatcher.Invoke(() =>
+						await Application.Current.Dispatcher.InvokeAsync(() =>
 						{
 							// новые строки в конце файла -> добавляем в начало списка (новые сверху)
 							for (int i = 0; i < newLines.Count; i++)
@@ -1149,7 +1171,7 @@ public partial class MainViewModel : ObservableObject
             
             _logger.Info($"AutoLoadAccountInfoAsync: Got account info - RiotId={accountInfo.Value.RiotId}, SummonerName={accountInfo.Value.SummonerName}, Rank={accountInfo.Value.Rank}, AvatarUrl={accountInfo.Value.AvatarUrl}, RankIconUrl={accountInfo.Value.RankIconUrl}, Username={accountInfo.Value.Username}");
             
-            Application.Current.Dispatcher.Invoke(() =>
+            await Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 AccountRecord? matchingAccount = null;
                 
@@ -1456,9 +1478,9 @@ public partial class MainViewModel : ObservableObject
         RefreshFilteredLogs();
     }
 
-    private void RefreshFilteredLogs()
+    private async Task RefreshFilteredLogsAsync()
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             FilteredLogLines.Clear();
             
@@ -1471,6 +1493,11 @@ public partial class MainViewModel : ObservableObject
                 }
             }
         });
+    }
+    
+    private void RefreshFilteredLogs()
+    {
+        _ = RefreshFilteredLogsAsync();
     }
 
     private bool ShouldShowLogLine(string logLine)

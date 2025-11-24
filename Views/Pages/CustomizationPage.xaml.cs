@@ -21,6 +21,16 @@ public partial class CustomizationPage : UserControl
     {
         InitializeComponent();
         InitializeViewModel();
+        Loaded += CustomizationPage_Loaded;
+    }
+    
+    private async void CustomizationPage_Loaded(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel != null)
+        {
+            await ViewModel.EnsureChallengesLoadedAsync();
+            await ViewModel.EnsureChampionsLoadedAsync();
+        }
     }
 
     private void InitializeViewModel()

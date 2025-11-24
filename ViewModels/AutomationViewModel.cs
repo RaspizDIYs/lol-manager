@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LolManager.Extensions;
 using LolManager.Models;
 using LolManager.Services;
 using System.Windows;
@@ -64,6 +66,7 @@ public partial class AutomationViewModel : ObservableObject
     
     private bool _isUpdatingSettings = false;
     private BindingService? _bindingService;
+    private Timer? _filterDebounceTimer;
 
     [ObservableProperty]
     private bool isPickDelayEnabled;
@@ -100,7 +103,7 @@ public partial class AutomationViewModel : ObservableObject
             
             if (e.PropertyName == nameof(ChampionSearchText))
             {
-                FilterChampions();
+                FilterChampionsDebounced();
                 return;
             }
             
@@ -292,7 +295,22 @@ public partial class AutomationViewModel : ObservableObject
         _isValidatingSpells = false;
     }
     
+    private void FilterChampionsDebounced()
+    {
+        _filterDebounceTimer?.Dispose();
+        _filterDebounceTimer = new Timer(_ => 
+        {
+            Application.Current.Dispatcher.InvokeAsync(() => FilterChampionsInternal());
+        }, null, 150, Timeout.Infinite);
+    }
+    
     private void FilterChampions()
+    {
+        _filterDebounceTimer?.Dispose();
+        FilterChampionsInternal();
+    }
+    
+    private void FilterChampionsInternal()
     {
         _isUpdatingSettings = true;
         
@@ -329,40 +347,34 @@ public partial class AutomationViewModel : ObservableObject
         
         // Список для ПИКА: исключаем выбранных в БАН и других пиках
         var excludedPicks = new HashSet<string> { currentBan, currentPick1, currentPick2, currentPick3 };
-        FilteredChampionsForPick.Clear();
-        foreach (var champion in baseFilteredList)
-        {
-            if (champion == "(Не выбрано)" || !excludedPicks.Contains(champion))
-            {
-                FilteredChampionsForPick.Add(champion);
-            }
-        }
+        var filteredPicks = baseFilteredList
+            .Where(champion => champion == "(Не выбрано)" || !excludedPicks.Contains(champion))
+            .ToList();
         
         // КРИТИЧНО: Всегда добавляем текущие пики если их нет
         foreach (var pick in new[] { currentPick1, currentPick2, currentPick3 })
         {
-            if (!string.IsNullOrEmpty(pick) && pick != "(Не выбрано)" && !FilteredChampionsForPick.Contains(pick))
+            if (!string.IsNullOrEmpty(pick) && pick != "(Не выбрано)" && !filteredPicks.Contains(pick))
             {
-                FilteredChampionsForPick.Add(pick);
+                filteredPicks.Add(pick);
             }
         }
+        
+        FilteredChampionsForPick.ReplaceAll(filteredPicks);
         
         // Список для БАНА: исключаем выбранных в ПИКАХ
         var excludedBans = new HashSet<string> { currentPick1, currentPick2, currentPick3 };
-        FilteredChampionsForBan.Clear();
-        foreach (var champion in baseFilteredList)
-        {
-            if (champion == "(Не выбрано)" || !excludedBans.Contains(champion))
-            {
-                FilteredChampionsForBan.Add(champion);
-            }
-        }
+        var filteredBans = baseFilteredList
+            .Where(champion => champion == "(Не выбрано)" || !excludedBans.Contains(champion))
+            .ToList();
         
         // КРИТИЧНО: Всегда добавляем текущий бан если его нет
-        if (!string.IsNullOrEmpty(currentBan) && currentBan != "(Не выбрано)" && !FilteredChampionsForBan.Contains(currentBan))
+        if (!string.IsNullOrEmpty(currentBan) && currentBan != "(Не выбрано)" && !filteredBans.Contains(currentBan))
         {
-            FilteredChampionsForBan.Add(currentBan);
+            filteredBans.Add(currentBan);
         }
+        
+        FilteredChampionsForBan.ReplaceAll(filteredBans);
         
         // Восстанавливаем выбор
         SelectedChampionToPick1 = currentPick1;

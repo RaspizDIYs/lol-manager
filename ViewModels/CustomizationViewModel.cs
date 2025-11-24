@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LolManager.Extensions;
 using LolManager.Models;
 using LolManager.Services;
 using System.Windows;
@@ -50,6 +52,11 @@ public partial class CustomizationViewModel : ObservableObject
     private int _loadedSkinsCount;
     private bool _isChampionDataReady;
     private const int SkinsPageSize = 60;
+    private const int MaxSkinsToDisplay = 200;
+    private Timer? _filterChallengesDebounceTimer;
+    private Timer? _filterBackgroundsDebounceTimer;
+    private bool _challengesLoaded = false;
+    private bool _championsLoaded = false;
     
     [ObservableProperty]
     private bool hasMoreSkins;
@@ -79,11 +86,11 @@ public partial class CustomizationViewModel : ObservableObject
         {
             if (e.PropertyName == nameof(BackgroundSearchText))
             {
-                FilterBackgrounds();
+                FilterBackgroundsDebounced();
             }
             else if (e.PropertyName == nameof(ChallengeSearchText))
             {
-                FilterChallenges();
+                FilterChallengesDebounced();
             }
             else if (e.PropertyName == nameof(SelectedChampionForBackground))
             {
@@ -97,9 +104,24 @@ public partial class CustomizationViewModel : ObservableObject
                 OnPropertyChanged(nameof(HasSelectedChallenges));
             }
         };
-        
-        _ = LoadChampionsAsync();
-        _ = LoadChallengesAsync();
+    }
+    
+    public async Task EnsureChallengesLoadedAsync()
+    {
+        if (!_challengesLoaded)
+        {
+            _challengesLoaded = true;
+            await LoadChallengesAsync();
+        }
+    }
+    
+    public async Task EnsureChampionsLoadedAsync()
+    {
+        if (!_championsLoaded)
+        {
+            _championsLoaded = true;
+            await LoadChampionsAsync();
+        }
     }
     
     private void UpdateAvailableSkins()
@@ -195,7 +217,22 @@ public partial class CustomizationViewModel : ObservableObject
         }
     }
 
+    private void FilterBackgroundsDebounced()
+    {
+        _filterBackgroundsDebounceTimer?.Dispose();
+        _filterBackgroundsDebounceTimer = new Timer(_ => 
+        {
+            Application.Current.Dispatcher.InvokeAsync(() => FilterBackgroundsInternal());
+        }, null, 150, Timeout.Infinite);
+    }
+    
     private void FilterBackgrounds()
+    {
+        _filterBackgroundsDebounceTimer?.Dispose();
+        FilterBackgroundsInternal();
+    }
+    
+    private void FilterBackgroundsInternal()
     {
         if (!_isChampionDataReady)
         {
@@ -205,8 +242,7 @@ public partial class CustomizationViewModel : ObservableObject
         var searchLower = BackgroundSearchText?.ToLowerInvariant().Trim() ?? string.Empty;
         var hasSearch = !string.IsNullOrWhiteSpace(searchLower);
         
-        FilteredChampions.Clear();
-        FilteredChampions.Add("(Не выбрано)");
+        var filteredChampionsList = new List<string> { "(Не выбрано)" };
         
         var prioritizedSkins = new List<Models.SkinInfo>();
         var otherSkins = new List<Models.SkinInfo>();
@@ -225,9 +261,11 @@ public partial class CustomizationViewModel : ObservableObject
             
             if (championMatches)
             {
-                FilteredChampions.Add(championName);
+                filteredChampionsList.Add(championName);
             }
         }
+        
+        FilteredChampions.ReplaceAll(filteredChampionsList);
         
         _filteredSkinsBuffer.Clear();
         foreach (var skin in _allSkinsBuffer)
@@ -280,9 +318,18 @@ public partial class CustomizationViewModel : ObservableObject
             return;
         }
         
+        var maxToLoad = Math.Min(MaxSkinsToDisplay, _filteredSkinsBuffer.Count);
+        var remainingToLoad = maxToLoad - _loadedSkinsCount;
+        
+        if (remainingToLoad <= 0)
+        {
+            HasMoreSkins = false;
+            return;
+        }
+        
         var chunk = _filteredSkinsBuffer
             .Skip(_loadedSkinsCount)
-            .Take(SkinsPageSize)
+            .Take(Math.Min(SkinsPageSize, remainingToLoad))
             .ToList();
         
         foreach (var skin in chunk)
@@ -291,7 +338,7 @@ public partial class CustomizationViewModel : ObservableObject
         }
         
         _loadedSkinsCount += chunk.Count;
-        HasMoreSkins = _loadedSkinsCount < _filteredSkinsBuffer.Count;
+        HasMoreSkins = _loadedSkinsCount < maxToLoad && _loadedSkinsCount < _filteredSkinsBuffer.Count;
     }
     
     [RelayCommand]
@@ -300,26 +347,34 @@ public partial class CustomizationViewModel : ObservableObject
         LoadNextSkinsChunk();
     }
 
+    private void FilterChallengesDebounced()
+    {
+        _filterChallengesDebounceTimer?.Dispose();
+        _filterChallengesDebounceTimer = new Timer(_ => 
+        {
+            Application.Current.Dispatcher.InvokeAsync(() => FilterChallengesInternal());
+        }, null, 150, Timeout.Infinite);
+    }
+    
     private void FilterChallenges()
+    {
+        _filterChallengesDebounceTimer?.Dispose();
+        FilterChallengesInternal();
+    }
+    
+    private void FilterChallengesInternal()
     {
         var searchLower = ChallengeSearchText?.ToLowerInvariant().Trim() ?? string.Empty;
         var hasSearch = !string.IsNullOrWhiteSpace(searchLower);
         
-        FilteredChallenges.Clear();
+        var filteredList = Challenges
+            .Where(challenge => !hasSearch ||
+                               challenge.Name.ToLowerInvariant().Contains(searchLower) ||
+                               challenge.Description.ToLowerInvariant().Contains(searchLower) ||
+                               challenge.Category.ToLowerInvariant().Contains(searchLower))
+            .ToList();
         
-        foreach (var challenge in Challenges)
-        {
-            if (hasSearch)
-            {
-                bool matches = challenge.Name.ToLowerInvariant().Contains(searchLower) ||
-                              challenge.Description.ToLowerInvariant().Contains(searchLower) ||
-                              challenge.Category.ToLowerInvariant().Contains(searchLower);
-                
-                if (!matches) continue;
-            }
-            
-            FilteredChallenges.Add(challenge);
-        }
+        FilteredChallenges.ReplaceAll(filteredList);
     }
 
     [RelayCommand]
@@ -335,7 +390,7 @@ public partial class CustomizationViewModel : ObservableObject
         try
         {
             IsLoading = true;
-            var success = await _customizationService.SetProfileStatusAsync(CustomStatus);
+            var success = await _customizationService.SetProfileStatusAsync(CustomStatus).ConfigureAwait(false);
             
             if (success)
             {
@@ -381,7 +436,7 @@ public partial class CustomizationViewModel : ObservableObject
         {
             IsLoading = true;
 
-            var success = await _customizationService.SetProfileBackgroundAsync(SelectedSkinForBackground.BackgroundSkinId);
+            var success = await _customizationService.SetProfileBackgroundAsync(SelectedSkinForBackground.BackgroundSkinId).ConfigureAwait(false);
             
             if (success)
             {
@@ -483,7 +538,7 @@ public partial class CustomizationViewModel : ObservableObject
             try
             {
                 IsLoading = true;
-                var success = await _customizationService.SetChallengeTokensAsync(new List<long>(), -1);
+                var success = await _customizationService.SetChallengeTokensAsync(new List<long>(), -1).ConfigureAwait(false);
                 
                 if (success)
                 {
@@ -526,7 +581,7 @@ public partial class CustomizationViewModel : ObservableObject
                 finalChallengeIds.RemoveAt(finalChallengeIds.Count - 1);
             }
             
-            var success = await _customizationService.SetChallengeTokensAsync(finalChallengeIds, -1);
+            var success = await _customizationService.SetChallengeTokensAsync(finalChallengeIds, -1).ConfigureAwait(false);
             
             if (success)
             {

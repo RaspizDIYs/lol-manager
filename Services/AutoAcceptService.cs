@@ -83,15 +83,20 @@ public class AutoAcceptService
         _championNameToIdCache = null;
         _spellNameToIdCache = null;
         
-        if (settings != null && settings.IsEnabled)
+        if (settings != null)
         {
+            var method = AutoAcceptMethodExtensions.Parse(settings.AutoAcceptMethod);
             _logger.Info($"🤖 Настройки автоматизации обновлены:");
-            _logger.Info($"  • Чемпион (пик 1): {settings.ChampionToPick1 ?? "(не выбрано)"}");
-            _logger.Info($"  • Чемпион (пик 2): {settings.ChampionToPick2 ?? "(не выбрано)"}");
-            _logger.Info($"  • Чемпион (пик 3): {settings.ChampionToPick3 ?? "(не выбрано)"}");
-            _logger.Info($"  • Чемпион (бан): {settings.ChampionToBan ?? "(не выбрано)"}");
-            _logger.Info($"  • Заклинание 1: {settings.SummonerSpell1 ?? "(не выбрано)"}");
-            _logger.Info($"  • Заклинание 2: {settings.SummonerSpell2 ?? "(не выбрано)"}");
+            _logger.Info($"  • Метод автопринятия: {method}");
+            if (settings.IsEnabled)
+            {
+                _logger.Info($"  • Чемпион (пик 1): {settings.ChampionToPick1 ?? "(не выбрано)"}");
+                _logger.Info($"  • Чемпион (пик 2): {settings.ChampionToPick2 ?? "(не выбрано)"}");
+                _logger.Info($"  • Чемпион (пик 3): {settings.ChampionToPick3 ?? "(не выбрано)"}");
+                _logger.Info($"  • Чемпион (бан): {settings.ChampionToBan ?? "(не выбрано)"}");
+                _logger.Info($"  • Заклинание 1: {settings.SummonerSpell1 ?? "(не выбрано)"}");
+                _logger.Info($"  • Заклинание 2: {settings.SummonerSpell2 ?? "(не выбрано)"}");
+            }
         }
         
         UpdateWebSocketState();

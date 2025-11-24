@@ -59,13 +59,13 @@
                         
                         <WrapPanel>
                             <RadioButton GroupName="AutoAcceptMethod" Content="Auto" Margin="0,0,15,0"
-                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Auto}" />
+                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Auto, Mode=TwoWay}" />
                             <RadioButton GroupName="AutoAcceptMethod" Content="WebSocket" Margin="0,0,15,0"
-                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=WebSocket}" />
+                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=WebSocket, Mode=TwoWay}" />
                             <RadioButton GroupName="AutoAcceptMethod" Content="Polling" Margin="0,0,15,0"
-                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Polling}" />
+                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=Polling, Mode=TwoWay}" />
                             <RadioButton GroupName="AutoAcceptMethod" Content="UIA" Margin="0,0,0,0"
-                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=UIA}" />
+                                         IsChecked="{Binding AutoAcceptMethod, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter=UIA, Mode=TwoWay}" />
                         </WrapPanel>
                         
                         <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" FontSize="11" Opacity="0.6">

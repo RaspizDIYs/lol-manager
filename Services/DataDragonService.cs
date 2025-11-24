@@ -27,7 +27,8 @@ public class DataDragonService
         var handler = new HttpClientHandler
         {
             ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
-            SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13
+            SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+            MaxConnectionsPerServer = 10
         };
         _httpClient = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         _ = EnsureLatestVersionAsync();

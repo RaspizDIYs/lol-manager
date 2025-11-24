@@ -23,7 +23,9 @@
                         VerticalAlignment="Center"
                         ClipToBounds="True">
                     <Image Source="{Binding Converter={StaticResource ChampionImageConverter}}" 
-                           Stretch="UniformToFill"/>
+                           Stretch="UniformToFill"
+                           RenderOptions.BitmapScalingMode="LowQuality"
+                           RenderOptions.CachingHint="Cache"/>
                 </Border>
                 <TextBlock Text="{Binding}" 
                            VerticalAlignment="Center"
@@ -64,6 +66,8 @@
                 </Border.Style>
                 <Grid>
                     <Image Source="{Binding Converter={StaticResource ChampionSplashartConverter}, ConverterParameter=256}"
+                           RenderOptions.BitmapScalingMode="LowQuality"
+                           RenderOptions.CachingHint="Cache"
                            Stretch="UniformToFill"
                            Opacity="0.7"/>
                     <Border Background="#80000000" VerticalAlignment="Bottom">
@@ -175,6 +179,8 @@
                     </Style>
                 </Border.Style>
                 <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}, ConverterParameter=100}"
+                       RenderOptions.BitmapScalingMode="LowQuality"
+                       RenderOptions.CachingHint="Cache"
                        Stretch="UniformToFill"/>
             </Border>
         </DataTemplate>
@@ -311,11 +317,12 @@
                                   ScrollViewer.CanContentScroll="False"
                                   ScrollChanged="SkinsScrollViewer_ScrollChanged">
                         <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredSkins}"
-                                      ItemTemplate="{StaticResource BackgroundSkinTemplate}">
+                                      ItemTemplate="{StaticResource BackgroundSkinTemplate}"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal" 
-                                                VirtualizingPanel.IsVirtualizing="False"/>
+                                    <WrapPanel Orientation="Horizontal"/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
@@ -446,10 +453,12 @@
                     
                     <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
                         <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredChallenges}"
-                                      ItemTemplate="{StaticResource ChallengeTemplate}">
+                                      ItemTemplate="{StaticResource ChallengeTemplate}"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
-                                    <WrapPanel Orientation="Horizontal"/>
+                                    <VirtualizingStackPanel Orientation="Horizontal"/>
                                 </ItemsPanelTemplate>
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>

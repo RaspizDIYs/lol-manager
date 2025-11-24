@@ -20,7 +20,9 @@
                         Margin="0,0,6,0"
                         VerticalAlignment="Center"
                         ClipToBounds="True">
-                    <Image Source="{Binding Converter={StaticResource ChampionImageConverter}}" 
+                    <Image Source="{Binding Converter={StaticResource ChampionImageConverter}}"
+                           RenderOptions.BitmapScalingMode="LowQuality"
+                           RenderOptions.CachingHint="Cache" 
                            Stretch="UniformToFill"/>
                 </Border>
                 <TextBlock Text="{Binding}" 
@@ -32,7 +34,9 @@
         <!-- ItemTemplate для заклинаний с иконками -->
         <DataTemplate x:Key="SummonerSpellTemplate">
             <StackPanel Orientation="Horizontal">
-                <Image Source="{Binding Converter={StaticResource SummonerSpellImageConverter}}" 
+                <Image Source="{Binding Converter={StaticResource SummonerSpellImageConverter}}"
+                       RenderOptions.BitmapScalingMode="LowQuality"
+                       RenderOptions.CachingHint="Cache" 
                        Width="22" 
                        Height="22" 
                        Margin="0,0,6,0"
@@ -372,6 +376,8 @@
                                                                 <Image Source="{Binding Converter={StaticResource RuneImageConverter}}"
                                                                        Width="18"
                                                                        Height="18"
+                                                                       RenderOptions.BitmapScalingMode="LowQuality"
+                                                                       RenderOptions.CachingHint="Cache"
                                                                        Stretch="UniformToFill"/>
                                                             </Border>
                                                         </DataTemplate>
