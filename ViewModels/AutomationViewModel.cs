@@ -7,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LolManager.Models;
 using LolManager.Services;
+using System.Windows;
 
 namespace LolManager.ViewModels;
 
@@ -146,60 +147,58 @@ public partial class AutomationViewModel : ObservableObject
             IsLoading = true;
             _logger.Info("Начинаю загрузку данных автоматизации...");
             
-            // Загружаем чемпионов и заклинания
             _logger.Info("Запрашиваю чемпионов...");
             var championsTask = _dataDragonService.GetChampionsAsync();
             _logger.Info("Запрашиваю заклинания...");
             var spellsTask = _dataDragonService.GetSummonerSpellsAsync();
             
-            await Task.WhenAll(championsTask, spellsTask);
+            await Task.WhenAll(championsTask, spellsTask).ConfigureAwait(false);
             
-            var champions = await championsTask;
-            var spells = await spellsTask;
+            var champions = await championsTask.ConfigureAwait(false);
+            var spells = await spellsTask.ConfigureAwait(false);
             
             _logger.Info($"Получено {champions.Count} чемпионов и {spells.Count} заклинаний");
             
-            // Обновляем списки
-            var currentPick1Selection = SelectedChampionToPick1;
-            var currentPick2Selection = SelectedChampionToPick2;
-            var currentPick3Selection = SelectedChampionToPick3;
-            var currentBanSelection = SelectedChampionToBan;
-            var currentSpell1Selection = SelectedSummonerSpell1;
-            var currentSpell2Selection = SelectedSummonerSpell2;
-            
-            Champions.Clear();
-            Champions.Add("(Не выбрано)");
-            foreach (var champ in champions.Keys.OrderBy(x => x))
+            var championNames = champions.Keys.OrderBy(x => x).ToList();
+            var popularSpells = new[]
             {
-                Champions.Add(champ);
-            }
-            
-            // Фильтруем и сортируем саммонерки в порядке популярности
-            var popularSpells = new[] {
-                "Скачок", "Телепорт", "Воспламенение", "Барьер", "Исцеление", 
+                "Скачок", "Телепорт", "Воспламенение", "Барьер", "Исцеление",
                 "Кара", "Очищение", "Изнурение", "Призрак"
             };
+            var availableSpells = popularSpells.Where(spells.ContainsKey).ToList();
             
-            SummonerSpells.Clear();
-            SummonerSpells.Add("(Не выбрано)");
-            foreach (var spellName in popularSpells)
+            await Application.Current.Dispatcher.InvokeAsync(() =>
             {
-                if (spells.ContainsKey(spellName))
+                var currentPick1Selection = SelectedChampionToPick1;
+                var currentPick2Selection = SelectedChampionToPick2;
+                var currentPick3Selection = SelectedChampionToPick3;
+                var currentBanSelection = SelectedChampionToBan;
+                var currentSpell1Selection = SelectedSummonerSpell1;
+                var currentSpell2Selection = SelectedSummonerSpell2;
+                
+                Champions.Clear();
+                Champions.Add("(Не выбрано)");
+                foreach (var champ in championNames)
+                {
+                    Champions.Add(champ);
+                }
+                
+                SummonerSpells.Clear();
+                SummonerSpells.Add("(Не выбрано)");
+                foreach (var spellName in availableSpells)
                 {
                     SummonerSpells.Add(spellName);
                 }
-            }
-            
-            // Восстанавливаем выбор
-            SelectedChampionToPick1 = Champions.Contains(currentPick1Selection) ? currentPick1Selection : "(Не выбрано)";
-            SelectedChampionToPick2 = Champions.Contains(currentPick2Selection) ? currentPick2Selection : "(Не выбрано)";
-            SelectedChampionToPick3 = Champions.Contains(currentPick3Selection) ? currentPick3Selection : "(Не выбрано)";
-            SelectedChampionToBan = Champions.Contains(currentBanSelection) ? currentBanSelection : "(Не выбрано)";
-            SelectedSummonerSpell1 = SummonerSpells.Contains(currentSpell1Selection) ? currentSpell1Selection : "(Не выбрано)";
-            SelectedSummonerSpell2 = SummonerSpells.Contains(currentSpell2Selection) ? currentSpell2Selection : "(Не выбрано)";
-            
-            // Инициализируем отфильтрованный список
-            FilterChampions();
+                
+                SelectedChampionToPick1 = Champions.Contains(currentPick1Selection) ? currentPick1Selection : "(Не выбрано)";
+                SelectedChampionToPick2 = Champions.Contains(currentPick2Selection) ? currentPick2Selection : "(Не выбрано)";
+                SelectedChampionToPick3 = Champions.Contains(currentPick3Selection) ? currentPick3Selection : "(Не выбрано)";
+                SelectedChampionToBan = Champions.Contains(currentBanSelection) ? currentBanSelection : "(Не выбрано)";
+                SelectedSummonerSpell1 = SummonerSpells.Contains(currentSpell1Selection) ? currentSpell1Selection : "(Не выбрано)";
+                SelectedSummonerSpell2 = SummonerSpells.Contains(currentSpell2Selection) ? currentSpell2Selection : "(Не выбрано)";
+                
+                FilterChampions();
+            });
             
             _logger.Info($"✅ Данные автоматизации загружены: {Champions.Count} чемпионов, {SummonerSpells.Count} заклинаний");
         }
@@ -213,7 +212,7 @@ public partial class AutomationViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
+            await Application.Current.Dispatcher.InvokeAsync(() => IsLoading = false);
         }
     }
 

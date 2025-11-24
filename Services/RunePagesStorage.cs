@@ -25,15 +25,48 @@ public class RunePagesStorage : IRunePagesStorage
 
     public RunePagesStorage(ILogger? logger = null)
     {
-        var appDataPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        var roamingPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "LolManager");
 
-        if (!Directory.Exists(appDataPath))
-            Directory.CreateDirectory(appDataPath);
+        if (!Directory.Exists(roamingPath))
+            Directory.CreateDirectory(roamingPath);
 
-        _dataFilePath = Path.Combine(appDataPath, "rune-pages.json");
+        _dataFilePath = Path.Combine(roamingPath, "rune-pages.json");
         _logger = logger;
+
+        MigrateFromOldLocation();
+    }
+
+    private void MigrateFromOldLocation()
+    {
+        try
+        {
+            if (File.Exists(_dataFilePath))
+                return;
+
+            var localPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LolManager");
+            var oldFilePath = Path.Combine(localPath, "rune-pages.json");
+
+            if (!File.Exists(oldFilePath))
+                return;
+
+            File.Copy(oldFilePath, _dataFilePath, overwrite: true);
+
+            var backupPath = oldFilePath + ".backup";
+            if (!File.Exists(backupPath))
+            {
+                File.Copy(oldFilePath, backupPath, overwrite: false);
+            }
+
+            _logger?.Info("Rune pages migrated to roaming AppData storage.");
+        }
+        catch (Exception ex)
+        {
+            _logger?.Warning($"Rune pages migration failed: {ex.Message}");
+        }
     }
 
     public List<RunePage> LoadAll()

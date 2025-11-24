@@ -10,7 +10,6 @@
         <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility"/>
         <converters:ChampionImageConverter x:Key="ChampionImageConverter"/>
         <converters:ChampionSplashartConverter x:Key="ChampionSplashartConverter"/>
-        <converters:SkinSplashartConverter x:Key="SkinSplashartConverter"/>
         <converters:ChallengeIconConverter x:Key="ChallengeIconConverter"/>
         <converters:MultiObjectEqualityConverter x:Key="MultiObjectEqualityConverter"/>
         <converters:ImageUrlConverter x:Key="ImageUrlConverter"/>
@@ -64,7 +63,7 @@
                     </Style>
                 </Border.Style>
                 <Grid>
-                    <Image Source="{Binding Converter={StaticResource ChampionSplashartConverter}}"
+                    <Image Source="{Binding Converter={StaticResource ChampionSplashartConverter}, ConverterParameter=256}"
                            Stretch="UniformToFill"
                            Opacity="0.7"/>
                     <Border Background="#80000000" VerticalAlignment="Bottom">
@@ -114,11 +113,8 @@
                     <Image Stretch="UniformToFill"
                            Opacity="0.7"
                            RenderOptions.BitmapScalingMode="HighQuality"
-                           ImageFailed="Image_ImageFailed">
-                        <Image.Source>
-                            <Binding Path="." Converter="{StaticResource SkinSplashartConverter}" IsAsync="True"/>
-                        </Image.Source>
-                    </Image>
+                           ImageFailed="Image_ImageFailed"
+                           Source="{Binding SplashUrl, Converter={StaticResource ImageUrlConverter}, ConverterParameter=256}"/>
                     <Border Background="#80000000" VerticalAlignment="Bottom">
                         <StackPanel Margin="8,4">
                             <TextBlock Text="{Binding ChampionName}"
@@ -226,7 +222,13 @@
                     <ui:TextBox Grid.Row="1" Grid.Column="0"
                                 Text="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.CustomStatus, Mode=TwoWay}"
                                 PlaceholderText="Введите статус..."
-                                Margin="0,0,8,0"/>
+                                Margin="0,0,8,0"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                VerticalContentAlignment="Top"
+                                FontFamily="Cascadia Code"
+                                MinHeight="140"
+                                VerticalScrollBarVisibility="Auto" />
                     <ui:Button Grid.Row="1" Grid.Column="1"
                                Content="Применить"
                                Command="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SetStatusCommand}"
@@ -254,8 +256,12 @@
                                 PlaceholderText="🔍 Поиск чемпиона..."
                                 Margin="0,0,0,12"/>
                     
-                    <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12"
-                                  ScrollViewer.CanContentScroll="False">
+                    <ScrollViewer x:Name="SkinsScrollViewer"
+                                  MaxHeight="400"
+                                  VerticalScrollBarVisibility="Auto"
+                                  Margin="0,0,0,12"
+                                  ScrollViewer.CanContentScroll="False"
+                                  ScrollChanged="SkinsScrollViewer_ScrollChanged">
                         <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredSkins}"
                                       ItemTemplate="{StaticResource BackgroundSkinTemplate}">
                             <ItemsControl.ItemsPanel>
@@ -266,6 +272,14 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
                     </ScrollViewer>
+                    
+                    <ui:Button Content="Показать ещё"
+                               Command="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.LoadMoreSkinsCommand}"
+                               Visibility="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.HasMoreSkins, Converter={StaticResource BoolToVisibility}}"
+                               Appearance="Secondary"
+                               HorizontalAlignment="Center"
+                               MinWidth="140"
+                               Margin="0,0,0,12"/>
                     
                     <Grid>
                         <Grid.ColumnDefinitions>

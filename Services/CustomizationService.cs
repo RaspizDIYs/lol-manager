@@ -34,7 +34,8 @@ public class CustomizationService
             var (port, password) = lcuAuth.Value;
             using var client = CreateHttpClient(port, password);
 
-            var statusJson = JsonSerializer.Serialize(new { statusMessage = status });
+            var normalizedStatus = NormalizeStatus(status);
+            var statusJson = JsonSerializer.Serialize(new { statusMessage = normalizedStatus });
             var content = new StringContent(statusJson, Encoding.UTF8, "application/json");
 
             var response = await client.PutAsync("/lol-chat/v1/me", content);
@@ -42,7 +43,7 @@ public class CustomizationService
             if (response.IsSuccessStatusCode)
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
-                _logger.Info($"✅ Статус профиля установлен: {status}, ответ: {responseContent}");
+                _logger.Info($"✅ Статус профиля установлен: {normalizedStatus}, ответ: {responseContent}");
                 return true;
             }
             else
@@ -500,6 +501,17 @@ public class CustomizationService
     public async Task<bool> ClearSelectedChallengeTokensAsync()
     {
         return await SetChallengeTokensAsync(new List<long>(), -1);
+    }
+
+    private static string NormalizeStatus(string status)
+    {
+        if (string.IsNullOrEmpty(status))
+        {
+            return string.Empty;
+        }
+
+        var normalized = status.Replace("\r\n", "\n").Replace('\r', '\n');
+        return normalized.Replace("\n", "\u2028");
     }
 
     private HttpClient CreateHttpClient(int port, string password)

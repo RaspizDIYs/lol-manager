@@ -7,6 +7,7 @@ namespace LolManager.Models;
 public class AutomationSettings : INotifyPropertyChanged
 {
     private string _championToPick1 = string.Empty;
+    private bool _isChampionToPick1Explicit;
     private string _championToPick2 = string.Empty;
     private string _championToPick3 = string.Empty;
     private string _championToBan = string.Empty;
@@ -25,17 +26,23 @@ public class AutomationSettings : INotifyPropertyChanged
         get => _championToPick1;
         set
         {
-            if (string.IsNullOrWhiteSpace(_championToPick1))
-            {
-                SetProperty(ref _championToPick1, value);
-            }
+            if (_isChampionToPick1Explicit)
+                return;
+
+            SetProperty(ref _championToPick1, value);
         }
     }
 
     public string ChampionToPick1
     {
         get => _championToPick1;
-        set => SetProperty(ref _championToPick1, value);
+        set
+        {
+            if (SetProperty(ref _championToPick1, value))
+            {
+                _isChampionToPick1Explicit = !string.IsNullOrWhiteSpace(value);
+            }
+        }
     }
 
     public string ChampionToPick2

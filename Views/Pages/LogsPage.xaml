@@ -18,38 +18,42 @@
         </Grid.RowDefinitions>
         
         <!-- Заголовок -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="6">
-            <TextBlock Text="Логи приложения" Margin="6,0,0,0" FontWeight="SemiBold"/>
+        <StackPanel Grid.Row="0" Margin="20,20,20,0">
+            <TextBlock Text="Логи приложения" FontSize="24" FontWeight="Bold" Margin="0,0,0,6"/>
+            <TextBlock Text="Просмотр логов работы приложения" 
+                       FontSize="12" 
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Margin="0,0,0,16"/>
         </StackPanel>
         
         <!-- Фильтры и управление -->
-        <Grid Grid.Row="1" Margin="12,10,12,10">
+        <Grid Grid.Row="1" Margin="20,0,20,10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             
             <!-- Фильтры по типам логов -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
-                <TextBlock Text="Фильтры:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,15,0"/>
-                <CheckBox Content="🔐 LOGIN" IsChecked="{Binding LogFilters.ShowLogin}" Margin="0,0,15,0" ToolTip="Показать логи входа в систему"/>
-                <CheckBox Content="🌐 HTTP" IsChecked="{Binding LogFilters.ShowHttp}" Margin="0,0,15,0" ToolTip="Показать HTTP запросы"/>
-                <CheckBox Content="🖱️ UI" IsChecked="{Binding LogFilters.ShowUi}" Margin="0,0,15,0" ToolTip="Показать UI события"/>
-                <CheckBox Content="⚙️ PROC" IsChecked="{Binding LogFilters.ShowProcess}" Margin="0,0,15,0" ToolTip="Показать события процессов"/>
-                <CheckBox Content="ℹ️ INFO" IsChecked="{Binding LogFilters.ShowInfo}" Margin="0,0,15,0" ToolTip="Показать информационные сообщения"/>
-                <CheckBox Content="⚠️ WARN" IsChecked="{Binding LogFilters.ShowWarning}" Margin="0,0,15,0" ToolTip="Показать предупреждения"/>
-                <CheckBox Content="❌ ERROR" IsChecked="{Binding LogFilters.ShowError}" Margin="0,0,15,0" ToolTip="Показать ошибки"/>
-            </StackPanel>
+            <WrapPanel Grid.Row="0" Margin="0,0,0,10">
+                <TextBlock Text="Фильтры:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,15,8"/>
+                <CheckBox Content="🔐 LOGIN" IsChecked="{Binding LogFilters.ShowLogin}" Margin="0,0,15,8" ToolTip="Показать логи входа в систему"/>
+                <CheckBox Content="🌐 HTTP" IsChecked="{Binding LogFilters.ShowHttp}" Margin="0,0,15,8" ToolTip="Показать HTTP запросы"/>
+                <CheckBox Content="🖱️ UI" IsChecked="{Binding LogFilters.ShowUi}" Margin="0,0,15,8" ToolTip="Показать UI события"/>
+                <CheckBox Content="⚙️ PROC" IsChecked="{Binding LogFilters.ShowProcess}" Margin="0,0,15,8" ToolTip="Показать события процессов"/>
+                <CheckBox Content="ℹ️ INFO" IsChecked="{Binding LogFilters.ShowInfo}" Margin="0,0,15,8" ToolTip="Показать информационные сообщения"/>
+                <CheckBox Content="⚠️ WARN" IsChecked="{Binding LogFilters.ShowWarning}" Margin="0,0,15,8" ToolTip="Показать предупреждения"/>
+                <CheckBox Content="❌ ERROR" IsChecked="{Binding LogFilters.ShowError}" Margin="0,0,15,8" ToolTip="Показать ошибки"/>
+            </WrapPanel>
             
             <!-- Управление логами -->
-            <StackPanel Grid.Row="1" Orientation="Horizontal">
-                <ui:Button Content="Выбрать всё" Command="{Binding SelectAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
-                <ui:Button Content="Снять всё" Command="{Binding ClearAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,0"/>
-                <Separator Margin="5,0"/>
-                <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="10,0,10,0"/>
-                <ui:Button Content="Очистить логи" Command="{Binding ClearLogsCommand}" Appearance="Secondary" Margin="0,0,10,0"/>
-                <ui:Button Content="🔄 Обновить" Command="{Binding RefreshLogsCommand}" Appearance="Primary" Margin="0,0,10,0"/>
-            </StackPanel>
+            <WrapPanel Grid.Row="1">
+                <ui:Button Content="Выбрать всё" Command="{Binding SelectAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,8"/>
+                <ui:Button Content="Снять всё" Command="{Binding ClearAllFiltersCommand}" Appearance="Transparent" Margin="0,0,10,8"/>
+                <Separator Margin="5,0,5,8"/>
+                <ui:Button Content="Открыть файл" Command="{Binding OpenLogFileCommand}" Appearance="Transparent" Margin="0,0,10,8"/>
+                <ui:Button Content="Очистить логи" Command="{Binding ClearLogsCommand}" Appearance="Secondary" Margin="0,0,10,8"/>
+                <ui:Button Content="🔄 Обновить" Command="{Binding RefreshLogsCommand}" Appearance="Primary" Margin="0,0,10,8"/>
+            </WrapPanel>
         </Grid>
         
         <!-- Список логов -->

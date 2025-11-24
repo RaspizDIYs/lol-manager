@@ -32,6 +32,13 @@ public class AccountRecord : INotifyPropertyChanged
         get => _rank;
         set => SetProperty(ref _rank, value);
     }
+
+    private string _rankDisplay = string.Empty;
+    public string RankDisplay
+    {
+        get => _rankDisplay;
+        set => SetProperty(ref _rankDisplay, value);
+    }
     
     private string _riotId = string.Empty;
     public string RiotId
@@ -90,6 +97,7 @@ public class ExportAccountRecord
     public string AvatarUrl { get; set; } = string.Empty;
     public string SummonerName { get; set; } = string.Empty;
     public string Rank { get; set; } = string.Empty;
+    public string RankDisplay { get; set; } = string.Empty;
     public string RiotId { get; set; } = string.Empty;
     public string RankIconUrl { get; set; } = string.Empty;
 }
@@ -103,6 +111,7 @@ public class ExportAccountRecordV3
     public string AvatarUrl { get; set; } = string.Empty;
     public string SummonerName { get; set; } = string.Empty;
     public string Rank { get; set; } = string.Empty;
+    public string RankDisplay { get; set; } = string.Empty;
     public string RiotId { get; set; } = string.Empty;
     public string RankIconUrl { get; set; } = string.Empty;
 }

@@ -75,6 +75,13 @@ public class AccountsStorage : IAccountsStorage
             {
                 var json = File.ReadAllText(_dataFilePath);
                 _cachedAccounts = JsonConvert.DeserializeObject<List<AccountRecord>>(json) ?? new List<AccountRecord>();
+                foreach (var acc in _cachedAccounts)
+                {
+                    if (string.IsNullOrEmpty(acc.RankDisplay) && !string.IsNullOrEmpty(acc.Rank))
+                    {
+                        acc.RankDisplay = acc.Rank;
+                    }
+                }
                 _lastFileRead = fileInfo.LastWriteTime;
             }
             catch (Exception ex)

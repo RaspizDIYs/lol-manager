@@ -7,6 +7,7 @@ namespace LolManager.Services;
 
 public class SettingsService : ISettingsService
 {
+    private static readonly object SettingsLock = new();
     private readonly string _configPath;
     private readonly Dictionary<string, object> _settings;
 
@@ -108,7 +109,11 @@ public class SettingsService : ISettingsService
         {
             if (File.Exists(_configPath))
             {
-                var json = File.ReadAllText(_configPath);
+                string json;
+                lock (SettingsLock)
+                {
+                    json = File.ReadAllText(_configPath);
+                }
                 var settings = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
                 return settings ?? new Dictionary<string, object>();
             }
@@ -129,7 +134,10 @@ public class SettingsService : ISettingsService
             { 
                 WriteIndented = true 
             });
-            File.WriteAllText(_configPath, json);
+            lock (SettingsLock)
+            {
+                File.WriteAllText(_configPath, json);
+            }
         }
         catch (Exception ex)
         {

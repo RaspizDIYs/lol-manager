@@ -286,7 +286,8 @@
                 </ui:Button>
                 
                 <!-- Навигационные кнопки -->
-                <StackPanel Grid.Row="2" Margin="15,32,15,20">
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="15,32,15,20">
                     <ui:Button x:Name="AccountsButton"
                               HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Left"
@@ -442,6 +443,7 @@
                         </StackPanel>
                     </ui:Button>
                 </StackPanel>
+            </ScrollViewer>
             </Grid>
         </Border>
 

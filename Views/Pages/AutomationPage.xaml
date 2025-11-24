@@ -47,10 +47,25 @@
     <!-- Главный контейнер с ограничением области отображения -->
     <Border ClipToBounds="True">
         <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Заголовок -->
+            <StackPanel Grid.Row="0" Margin="20,20,20,0">
+                <TextBlock Text="Автоматизация" FontSize="24" FontWeight="Bold" Margin="0,0,0,6"/>
+                <TextBlock Text="Настройте автоматический выбор чемпиона, бан и заклинания призывателя"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,16"/>
+            </StackPanel>
+            
             <!-- Skeleton Loader - должен быть поверх основного контента -->
-            <StackPanel Margin="16" 
-                        HorizontalAlignment="Left" 
-                        MaxWidth="550"
+            <StackPanel Grid.Row="1"
+                        Margin="20,0,20,20" 
+                        HorizontalAlignment="Stretch" 
                         Panel.ZIndex="10"
                         Visibility="{Binding ElementName=AutomationPageRoot, Path=ViewModel.IsLoading, Converter={StaticResource BoolToVisibility}}">
             <ui:Card Margin="0,0,0,12" Padding="16">
@@ -80,317 +95,320 @@
         </StackPanel>
         
         <!-- Main Content -->
-        <ScrollViewer VerticalScrollBarVisibility="Auto"
+        <ScrollViewer Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
                       Panel.ZIndex="1"
                       Visibility="{Binding ElementName=AutomationPageRoot, Path=ViewModel.IsLoading, Converter={StaticResource InverseBoolToVisibility}}"
                       DataContext="{Binding ElementName=AutomationPageRoot, Path=ViewModel}">
-            <StackPanel Margin="12" HorizontalAlignment="Left" MaxWidth="550">
-                
-                <!-- Заголовок -->
-                <TextBlock Text="Автоматизация" 
-                           FontSize="24" 
-                           FontWeight="Bold" 
-                           Margin="0,0,0,6"/>
-                           
-                
-                <TextBlock Text="Настройте автоматический выбор чемпиона, бан, заклинания призывателя"
-                           FontSize="12"
-                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap"
-                           Margin="0,0,0,16"/>
+            <StackPanel Margin="20,0,20,20" HorizontalAlignment="Stretch">
 
                 <!-- Включение автоматизации -->
                 <ui:ToggleSwitch IsChecked="{Binding IsAutomationEnabled, Mode=TwoWay}" 
-                                Content="Включить"
+                                Content="Включить автоматизацию"
                                 Margin="0,0,0,16"/>
 
                 <!-- Задержка перед пиком -->
-                <StackPanel Margin="0,0,0,16">
-                    <CheckBox Content="Задержка перед пиком"
-                              IsChecked="{Binding IsPickDelayEnabled, Mode=TwoWay}"
-                              IsEnabled="{Binding IsAutomationEnabled}"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                        <Slider Minimum="0" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
-                                Value="{Binding PickDelaySeconds, Mode=TwoWay}"
-                                IsEnabled="{Binding IsAutomationEnabled}" Width="200"/>
-                        <TextBlock Text="{Binding PickDelaySeconds}" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                        <TextBlock Text="сек" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                <ui:Card Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <CheckBox Content="Задержка перед пиком"
+                                  IsChecked="{Binding IsPickDelayEnabled, Mode=TwoWay}"
+                                  IsEnabled="{Binding IsAutomationEnabled}"
+                                  Margin="0,0,0,8"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0"
+                                    Minimum="0" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
+                                    Value="{Binding PickDelaySeconds, Mode=TwoWay}"
+                                    IsEnabled="{Binding IsAutomationEnabled}"
+                                    Margin="0,0,12,0"/>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="{Binding PickDelaySeconds}" VerticalAlignment="Center"/>
+                                <TextBlock Text=" сек" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
-                </StackPanel>
+                </ui:Card>
 
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    
-                    <!-- Поиск чемпиона -->
-                    <ui:TextBox Text="{Binding ChampionSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                IsEnabled="{Binding IsAutomationEnabled}"
-                                PlaceholderText="🔍 Поиск чемпиона..."
-                                Margin="0,0,0,6"
-                                Grid.ColumnSpan="2"
-                                Grid.Row="0"
-                                Width="160"
-                                HorizontalAlignment="Center"/>
-                    
-                    <!-- Автовыбор чемпиона -->
-                    <StackPanel                         
-                        Grid.Row="1"
-                        Grid.Column="0"
-                        Margin="0,0,8,0">
-                        <TextBlock Text="Выбрать" 
-                                   FontSize="14" 
-                                   FontWeight="SemiBold" 
-                                   Margin="0,0,0,6"/>
-                        <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
-                                  SelectedItem="{Binding SelectedChampionToPick1, Mode=TwoWay}"
-                                  IsEnabled="{Binding IsAutomationEnabled}"
-                                  MaxDropDownHeight="350"
-                                  ItemTemplate="{StaticResource ChampionTemplate}"
-                                  Margin="0,0,0,4">
-                            <ComboBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel/>
-                                </ItemsPanelTemplate>
-                            </ComboBox.ItemsPanel>
-                        </ComboBox>
-                        <TextBlock Text="Выбор 2 и 3 используются при блокировке вашего препикнутого чемпиона"
-                                   FontSize="11"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,4,0,0"/>
+                <!-- Чемпионы -->
+                <ui:Card Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Чемпионы" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
                         
-                        <!-- Резервные варианты -->
-                        <StackPanel Margin="0,8,0,0">
-                            <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
-                                      SelectedItem="{Binding SelectedChampionToPick2, Mode=TwoWay}"
-                                      IsEnabled="{Binding IsAutomationEnabled}"
-                                      MaxDropDownHeight="350"
-                                      ItemTemplate="{StaticResource ChampionTemplate}"
-                                      Margin="0,0,0,4"
-                                      FontSize="11">
-                                <ComboBox.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <VirtualizingStackPanel/>
-                                    </ItemsPanelTemplate>
-                                </ComboBox.ItemsPanel>
-                            </ComboBox>
-                            <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
-                                      SelectedItem="{Binding SelectedChampionToPick3, Mode=TwoWay}"
-                                      IsEnabled="{Binding IsAutomationEnabled}"
-                                      MaxDropDownHeight="350"
-                                      ItemTemplate="{StaticResource ChampionTemplate}"
-                                      FontSize="11">
-                                <ComboBox.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <VirtualizingStackPanel/>
-                                    </ItemsPanelTemplate>
-                                </ComboBox.ItemsPanel>
-                            </ComboBox>
-                        </StackPanel>
+                        <!-- Поиск чемпиона -->
+                        <ui:TextBox Text="{Binding ChampionSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                    IsEnabled="{Binding IsAutomationEnabled}"
+                                    PlaceholderText="🔍 Поиск чемпиона..."
+                                    Margin="0,0,0,12"/>
+                        
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            
+                            <!-- Автовыбор чемпиона -->
+                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="Выбрать" 
+                                           FontSize="14" 
+                                           FontWeight="SemiBold" 
+                                           Margin="0,0,0,6"/>
+                                <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
+                                          SelectedItem="{Binding SelectedChampionToPick1, Mode=TwoWay}"
+                                          IsEnabled="{Binding IsAutomationEnabled}"
+                                          MaxDropDownHeight="350"
+                                          ItemTemplate="{StaticResource ChampionTemplate}"
+                                          Margin="0,0,0,4">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                                
+                                <TextBlock Text="Резервные варианты при блокировке:"
+                                           FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           TextWrapping="Wrap"
+                                           Margin="0,4,0,4"/>
+                                
+                                <!-- Резервные варианты -->
+                                <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
+                                          SelectedItem="{Binding SelectedChampionToPick2, Mode=TwoWay}"
+                                          IsEnabled="{Binding IsAutomationEnabled}"
+                                          MaxDropDownHeight="350"
+                                          ItemTemplate="{StaticResource ChampionTemplate}"
+                                          Margin="0,0,0,4"
+                                          FontSize="11">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                                <ComboBox ItemsSource="{Binding FilteredChampionsForPick}" 
+                                          SelectedItem="{Binding SelectedChampionToPick3, Mode=TwoWay}"
+                                          IsEnabled="{Binding IsAutomationEnabled}"
+                                          MaxDropDownHeight="350"
+                                          ItemTemplate="{StaticResource ChampionTemplate}"
+                                          FontSize="11">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                            </StackPanel>
+                       
+                            <!-- Автобан чемпиона -->
+                            <StackPanel Grid.Row="0" Grid.Column="1">
+                                <TextBlock Text="Забанить" 
+                                           FontSize="14" 
+                                           FontWeight="SemiBold" 
+                                           Margin="0,0,0,6"/>
+                                <ComboBox ItemsSource="{Binding FilteredChampionsForBan}" 
+                                          SelectedItem="{Binding SelectedChampionToBan, Mode=TwoWay}"
+                                          IsEnabled="{Binding IsAutomationEnabled}"
+                                          MaxDropDownHeight="350"
+                                          ItemTemplate="{StaticResource ChampionTemplate}">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
-               
-                    <!-- Автобан чемпиона -->
-                    <StackPanel                  
-                        Grid.Row="1"
-                        Grid.Column="1">
-                        <TextBlock Text="Забанить" 
-                                   FontSize="14" 
-                                   FontWeight="SemiBold" 
-                                   Margin="0,0,0,6"/>
-                        <ComboBox ItemsSource="{Binding FilteredChampionsForBan}" 
-                                  SelectedItem="{Binding SelectedChampionToBan, Mode=TwoWay}"
-                                  IsEnabled="{Binding IsAutomationEnabled}"
-                                  MaxDropDownHeight="350"
-                                  ItemTemplate="{StaticResource ChampionTemplate}"
-                                  Margin="0,0,0,16">
-                            <ComboBox.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel/>
-                                </ItemsPanelTemplate>
-                            </ComboBox.ItemsPanel>
-                        </ComboBox>
-                    </StackPanel>
-                </Grid>
+                </ui:Card>
 
                 <!-- Заклинания призывателя -->
-                
-                <Grid Margin="0,0,0,16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    
-                    <StackPanel Grid.Column="0">
-                        <TextBlock Text="Заклинание 1" 
-                                   FontSize="13" 
-                                   FontWeight="SemiBold" 
-                                   Margin="0,0,0,6"/>
-                        <ComboBox ItemsSource="{Binding SummonerSpells}" 
-                                  SelectedItem="{Binding SelectedSummonerSpell1, Mode=TwoWay}"
-                                  ItemTemplate="{StaticResource SummonerSpellTemplate}"
-                                  IsEnabled="{Binding IsAutomationEnabled}">
-                        <ComboBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <VirtualizingStackPanel/>
-                            </ItemsPanelTemplate>
-                        </ComboBox.ItemsPanel>
-                    </ComboBox>
-                </StackPanel>
-                
-                <ui:Button Grid.Column="1"
-                          Content="⇄"
-                          FontSize="16"
-                          Width="40"
-                          VerticalAlignment="Bottom"
-                          Margin="6,0,6,0"
-                          Command="{Binding SwapSummonerSpellsCommand}"
-                          IsEnabled="{Binding IsAutomationEnabled}"
-                          ToolTip="Поменять местами"/>
-                
-                <StackPanel Grid.Column="2">
-                    <TextBlock Text="Заклинание 2" 
-                               FontWeight="SemiBold" 
-                               FontSize="14" 
-                               Margin="0,0,0,8"/>
-                    <ComboBox ItemsSource="{Binding SummonerSpells}" 
-                              SelectedItem="{Binding SelectedSummonerSpell2, Mode=TwoWay}"
-                              ItemTemplate="{StaticResource SummonerSpellTemplate}"
-                              IsEnabled="{Binding IsAutomationEnabled}">
-                        <ComboBox.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <VirtualizingStackPanel/>
-                            </ItemsPanelTemplate>
-                            </ComboBox.ItemsPanel>
-                        </ComboBox>
+                <ui:Card Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Заклинания призывателя" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                        
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="Заклинание 1" 
+                                           FontSize="13" 
+                                           FontWeight="SemiBold" 
+                                           Margin="0,0,0,6"/>
+                                <ComboBox ItemsSource="{Binding SummonerSpells}" 
+                                          SelectedItem="{Binding SelectedSummonerSpell1, Mode=TwoWay}"
+                                          ItemTemplate="{StaticResource SummonerSpellTemplate}"
+                                          IsEnabled="{Binding IsAutomationEnabled}">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                            </StackPanel>
+                            
+                            <ui:Button Grid.Column="1"
+                                      Content="⇄"
+                                      FontSize="16"
+                                      Width="40"
+                                      VerticalAlignment="Bottom"
+                                      Margin="6,0,6,0"
+                                      Command="{Binding SwapSummonerSpellsCommand}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      ToolTip="Поменять местами"/>
+                            
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Заклинание 2" 
+                                           FontWeight="SemiBold" 
+                                           FontSize="13" 
+                                           Margin="0,0,0,6"/>
+                                <ComboBox ItemsSource="{Binding SummonerSpells}" 
+                                          SelectedItem="{Binding SelectedSummonerSpell2, Mode=TwoWay}"
+                                          ItemTemplate="{StaticResource SummonerSpellTemplate}"
+                                          IsEnabled="{Binding IsAutomationEnabled}">
+                                    <ComboBox.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ComboBox.ItemsPanel>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
-                </Grid>
+                </ui:Card>
 
                 <!-- Руны -->
-                <TextBlock Text="Страницы рун" 
-                           FontSize="16" 
-                           FontWeight="SemiBold" 
-                           Margin="0,16,0,8"/>
-            
-                <!-- Скрыто до релиза фичи автогенерации рун -->
-                <ui:ToggleSwitch IsEnabled="False" IsChecked="False"
-                                 Content="Автоматически создавать рекомендованную страницу рун (скоро)"
-                                 Margin="0,0,0,8"
-                                 Visibility="Collapsed"/>
+                <ui:Card Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Страницы рун" 
+                                   FontSize="16" 
+                                   FontWeight="SemiBold" 
+                                   Margin="0,0,0,8"/>
+                        
+                        <!-- Скрыто до релиза фичи автогенерации рун -->
+                        <ui:ToggleSwitch IsEnabled="False" IsChecked="False"
+                                         Content="Автоматически создавать рекомендованную страницу рун (скоро)"
+                                         Margin="0,0,0,8"
+                                         Visibility="Collapsed"/>
 
-                <Grid Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                <ComboBox Grid.Column="0"
-                          ItemsSource="{Binding RunePageNames}"
-                          SelectedItem="{Binding SelectedRunePageName, Mode=TwoWay}"
-                          IsEnabled="{Binding IsAutomationEnabled}"
-                          Margin="0,0,8,0"/>
+                            <ComboBox Grid.Column="0"
+                                      ItemsSource="{Binding RunePageNames}"
+                                      SelectedItem="{Binding SelectedRunePageName, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      Margin="0,0,8,0"/>
 
-                <ui:Button Grid.Column="1"
-                          Content="🎯 Применить"
-                          Command="{Binding ApplySelectedRunePageCommand}"
-                          IsEnabled="{Binding IsAutomationEnabled}"
-                          Margin="0,0,8,0"
-                          ToolTip="Применить выбранную страницу рун в клиенте LoL"/>
+                            <ui:Button Grid.Column="1"
+                                      Content="🎯 Применить"
+                                      Command="{Binding ApplySelectedRunePageCommand}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      Margin="0,0,8,0"
+                                      ToolTip="Применить выбранную страницу рун в клиенте LoL"/>
 
-                <ui:Button Grid.Column="2"
-                          Content="+ Создать"
-                          Command="{Binding AddRunePageCommand}"
-                          IsEnabled="{Binding IsAutomationEnabled}"/>
-            </Grid>
+                            <ui:Button Grid.Column="2"
+                                      Content="+ Создать"
+                                      Command="{Binding AddRunePageCommand}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"/>
+                        </Grid>
 
-            <ItemsControl ItemsSource="{Binding RunePages}"
-                          Margin="0,0,0,16"
-                          Visibility="{Binding RunePages, Converter={StaticResource CollectionCountToVisibility}}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <ui:Card Margin="0,0,0,8" Padding="12">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                
-                                <!-- Название и превью -->
-                                <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Name}"
-                                              FontSize="14"
-                                              FontWeight="SemiBold"
-                                              Margin="0,0,0,6"
-                                              TextTrimming="CharacterEllipsis"/>
-                                    
-                                    <!-- Превью рун (горизонтально) -->
-                                    <ItemsControl>
-                                        <ItemsControl.ItemsSource>
-                                            <MultiBinding Converter="{StaticResource RunePagePreviewConverter}">
-                                                <Binding Path="."/>
-                                            </MultiBinding>
-                                        </ItemsControl.ItemsSource>
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Horizontal"/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Width="22"
-                                                        Height="22"
-                                                        Margin="0,0,4,0"
-                                                        CornerRadius="11"
-                                                        Background="#0A0E12"
-                                                        BorderBrush="#2A2F36"
-                                                        BorderThickness="1.5">
-                                                    <Image Source="{Binding Converter={StaticResource RuneImageConverter}}"
-                                                           Width="18"
-                                                           Height="18"
-                                                           Stretch="UniformToFill"/>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                                
-                                <!-- Кнопки -->
-                                <ui:Button Grid.Column="1"
-                                           Content="✏️ "
-                                           Width="40"
-                                           Height="36"
-                                           Padding="8,6"
-                                           Margin="8,0,4,0"
-                                           Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
-                                           CommandParameter="{Binding}"
-                                           ToolTip="Редактировать"/>
-                                <ui:Button Grid.Column="2"
-                                           Content="🗑️ "
-                                           Width="40"
-                                           Height="36"
-                                           Padding="8,6"
-                                           Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
-                                           CommandParameter="{Binding}"
-                                           ToolTip="Удалить"/>
-                            </Grid>
-                        </ui:Card>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding RunePages}"
+                                      Visibility="{Binding RunePages, Converter={StaticResource CollectionCountToVisibility}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <ui:Card Margin="0,0,0,8" Padding="12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <!-- Название и превью -->
+                                            <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}"
+                                                          FontSize="14"
+                                                          FontWeight="SemiBold"
+                                                          Margin="0,0,0,6"
+                                                          TextTrimming="CharacterEllipsis"/>
+                                                
+                                                <!-- Превью рун (горизонтально) -->
+                                                <ItemsControl>
+                                                    <ItemsControl.ItemsSource>
+                                                        <MultiBinding Converter="{StaticResource RunePagePreviewConverter}">
+                                                            <Binding Path="."/>
+                                                        </MultiBinding>
+                                                    </ItemsControl.ItemsSource>
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate>
+                                                            <StackPanel Orientation="Horizontal"/>
+                                                        </ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Width="22"
+                                                                    Height="22"
+                                                                    Margin="0,0,4,0"
+                                                                    CornerRadius="11"
+                                                                    Background="#0A0E12"
+                                                                    BorderBrush="#2A2F36"
+                                                                    BorderThickness="1.5">
+                                                                <Image Source="{Binding Converter={StaticResource RuneImageConverter}}"
+                                                                       Width="18"
+                                                                       Height="18"
+                                                                       Stretch="UniformToFill"/>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                            
+                                            <!-- Кнопки -->
+                                            <ui:Button Grid.Column="1"
+                                                       Content="✏️ "
+                                                       Width="40"
+                                                       Height="36"
+                                                       Padding="8,6"
+                                                       Margin="8,0,4,0"
+                                                       Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditRunePageCommand}"
+                                                       CommandParameter="{Binding}"
+                                                       ToolTip="Редактировать"/>
+                                            <ui:Button Grid.Column="2"
+                                                       Content="🗑️ "
+                                                       Width="40"
+                                                       Height="36"
+                                                       Padding="8,6"
+                                                       Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
+                                                       CommandParameter="{Binding}"
+                                                       ToolTip="Удалить"/>
+                                        </Grid>
+                                    </ui:Card>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ui:Card>
             
                 <TextBlock Text="💾 Настройки сохраняются автоматически"
                            FontSize="11"
                            Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                           HorizontalAlignment="Left"/>
+                           HorizontalAlignment="Left"
+                           Margin="0,0,0,16"/>
             </StackPanel>
         </ScrollViewer>
     </Grid>

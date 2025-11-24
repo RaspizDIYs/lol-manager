@@ -206,7 +206,8 @@ public class DataDragonService
                                 SkinNumber = skinNum,
                                 ChampionName = displayName,
                                 ChampionId = championId,
-                                BackgroundSkinId = backgroundSkinId
+                                BackgroundSkinId = backgroundSkinId,
+                                SplashUrl = $"https://ddragon.leagueoflegends.com/cdn/img/champion/splash/{englishName}_{skinNum}.jpg"
                             });
                         }
                     }
@@ -557,11 +558,37 @@ public class DataDragonService
         return $"https://ddragon.leagueoflegends.com/cdn/{_latestVersion}/img/spell/{spellName}.png";
     }
     
+    private static readonly Dictionary<string, string> RankIconFileNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "IRON", "Emblem_Iron.png" },
+        { "BRONZE", "Emblem_Bronze.png" },
+        { "SILVER", "Emblem_Silver.png" },
+        { "GOLD", "Emblem_Gold.png" },
+        { "PLATINUM", "Emblem_Platinum.png" },
+        { "EMERALD", "Emblem_Emerald.png" },
+        { "DIAMOND", "Emblem_Diamond.png" },
+        { "MASTER", "Emblem_Master.png" },
+        { "GRANDMASTER", "Emblem_Grandmaster.png" },
+        { "CHALLENGER", "Emblem_Challenger.png" }
+    };
+    
     public string GetRankIconUrl(string tier)
     {
         if (string.IsNullOrWhiteSpace(tier)) return string.Empty;
         
-        var tierLower = tier.ToUpperInvariant();
-        return $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/{tierLower}.png";
+        var normalized = tier.Split(' ')[0].Trim();
+        if (!RankIconFileNames.TryGetValue(normalized, out var fileName))
+        {
+            var formatted = char.ToUpperInvariant(normalized[0]) + normalized[1..].ToLowerInvariant();
+            fileName = $"Emblem_{formatted}.png";
+        }
+        
+        return $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/{fileName}";
+    }
+    
+    public string GetProfileIconUrl(int profileIconId)
+    {
+        if (profileIconId <= 0) return string.Empty;
+        return $"https://ddragon.leagueoflegends.com/cdn/{_latestVersion}/img/profileicon/{profileIconId}.png";
     }
 }

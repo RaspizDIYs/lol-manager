@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,6 +7,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LolManager.Models;
 using LolManager.Services;
+using System.Windows;
 
 namespace LolManager.ViewModels;
 
@@ -38,10 +40,18 @@ public partial class CustomizationViewModel : ObservableObject
 
     public ObservableCollection<string> Champions { get; } = new();
     public ObservableCollection<string> FilteredChampions { get; } = new();
-    public ObservableCollection<Models.SkinInfo> AllSkins { get; } = new();
     public ObservableCollection<Models.SkinInfo> FilteredSkins { get; } = new();
     public ObservableCollection<ChallengeInfo> Challenges { get; } = new();
     public ObservableCollection<ChallengeInfo> FilteredChallenges { get; } = new();
+    
+    private readonly List<Models.SkinInfo> _allSkinsBuffer = new();
+    private readonly List<Models.SkinInfo> _filteredSkinsBuffer = new();
+    private int _loadedSkinsCount;
+    private bool _isChampionDataReady;
+    private const int SkinsPageSize = 60;
+    
+    [ObservableProperty]
+    private bool hasMoreSkins;
     
     [ObservableProperty]
     private ChallengeInfo? selectedChallenge1;
@@ -110,27 +120,35 @@ public partial class CustomizationViewModel : ObservableObject
         try
         {
             IsLoading = true;
-            var champions = await _dataDragonService.GetChampionsAsync();
+            var champions = await _dataDragonService.GetChampionsAsync().ConfigureAwait(false);
+            var championNames = champions.Keys.OrderBy(x => x).ToList();
+            var allSkins = new List<Models.SkinInfo>();
             
-            Champions.Clear();
-            Champions.Add("(Не выбрано)");
-            AllSkins.Clear();
-            
-            foreach (var champ in champions.Keys.OrderBy(x => x))
+            foreach (var champ in championNames)
             {
-                Champions.Add(champ);
-                
                 var info = _dataDragonService.GetChampionInfo(champ);
-                if (info != null && info.Skins.Count > 0)
-                {
-                    foreach (var skin in info.Skins.OrderBy(s => s.SkinNumber))
-                    {
-                        AllSkins.Add(skin);
-                    }
-                }
+                if (info == null || info.Skins.Count == 0) continue;
+                allSkins.AddRange(info.Skins.OrderBy(s => s.SkinNumber));
             }
             
-            FilterBackgrounds();
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                Champions.Clear();
+                Champions.Add("(Не выбрано)");
+                FilteredChampions.Clear();
+                FilteredChampions.Add("(Не выбрано)");
+                
+                foreach (var champ in championNames)
+                {
+                    Champions.Add(champ);
+                }
+                
+                _allSkinsBuffer.Clear();
+                _allSkinsBuffer.AddRange(allSkins);
+                _isChampionDataReady = true;
+                
+                FilterBackgrounds();
+            });
         }
         catch (Exception ex)
         {
@@ -169,13 +187,19 @@ public partial class CustomizationViewModel : ObservableObject
 
     private void FilterBackgrounds()
     {
+        if (!_isChampionDataReady)
+        {
+            return;
+        }
+        
         var searchLower = BackgroundSearchText?.ToLowerInvariant().Trim() ?? string.Empty;
         var hasSearch = !string.IsNullOrWhiteSpace(searchLower);
         
         FilteredChampions.Clear();
         FilteredChampions.Add("(Не выбрано)");
         
-        FilteredSkins.Clear();
+        var prioritizedSkins = new List<Models.SkinInfo>();
+        var otherSkins = new List<Models.SkinInfo>();
         
         foreach (var championName in Champions)
         {
@@ -184,32 +208,86 @@ public partial class CustomizationViewModel : ObservableObject
             var info = _dataDragonService.GetChampionInfo(championName);
             if (info == null) continue;
             
-            bool championMatches = !hasSearch || 
-                info.DisplayName.ToLowerInvariant().Contains(searchLower) ||
-                info.EnglishName.ToLowerInvariant().Contains(searchLower) ||
-                info.Aliases.Any(alias => alias.Contains(searchLower));
+            bool championMatches = !hasSearch ||
+                                   info.DisplayName.ToLowerInvariant().Contains(searchLower) ||
+                                   info.EnglishName.ToLowerInvariant().Contains(searchLower) ||
+                                   info.Aliases.Any(alias => alias.Contains(searchLower));
             
             if (championMatches)
             {
                 FilteredChampions.Add(championName);
             }
+        }
+        
+        _filteredSkinsBuffer.Clear();
+        foreach (var skin in _allSkinsBuffer)
+        {
+            var info = _dataDragonService.GetChampionInfo(skin.ChampionName);
+            if (info == null) continue;
             
-            // Добавляем все скины этого чемпиона в фильтрованный список
-            foreach (var skin in info.Skins.OrderBy(s => s.SkinNumber))
+            bool championMatches = !hasSearch ||
+                                   info.DisplayName.ToLowerInvariant().Contains(searchLower) ||
+                                   info.EnglishName.ToLowerInvariant().Contains(searchLower) ||
+                                   info.Aliases.Any(alias => alias.Contains(searchLower));
+            
+            bool skinMatches = !hasSearch ||
+                               championMatches ||
+                               skin.Name.ToLowerInvariant().Contains(searchLower);
+            
+            if (skinMatches)
             {
-                bool skinMatches = !hasSearch || 
-                    championMatches ||
-                    skin.Name.ToLowerInvariant().Contains(searchLower) ||
-                    info.DisplayName.ToLowerInvariant().Contains(searchLower);
-                
-                if (skinMatches)
+                if (championMatches)
                 {
-                    FilteredSkins.Add(skin);
+                    prioritizedSkins.Add(skin);
+                }
+                else
+                {
+                    otherSkins.Add(skin);
                 }
             }
         }
         
+        _filteredSkinsBuffer.Clear();
+        _filteredSkinsBuffer.AddRange(prioritizedSkins);
+        _filteredSkinsBuffer.AddRange(otherSkins);
+        
+        ResetSkinsPagination();
         UpdateAvailableSkins();
+    }
+    
+    private void ResetSkinsPagination()
+    {
+        _loadedSkinsCount = 0;
+        FilteredSkins.Clear();
+        LoadNextSkinsChunk();
+    }
+    
+    private void LoadNextSkinsChunk()
+    {
+        if (_filteredSkinsBuffer.Count == 0)
+        {
+            HasMoreSkins = false;
+            return;
+        }
+        
+        var chunk = _filteredSkinsBuffer
+            .Skip(_loadedSkinsCount)
+            .Take(SkinsPageSize)
+            .ToList();
+        
+        foreach (var skin in chunk)
+        {
+            FilteredSkins.Add(skin);
+        }
+        
+        _loadedSkinsCount += chunk.Count;
+        HasMoreSkins = _loadedSkinsCount < _filteredSkinsBuffer.Count;
+    }
+    
+    [RelayCommand]
+    private void LoadMoreSkins()
+    {
+        LoadNextSkinsChunk();
     }
 
     private void FilterChallenges()

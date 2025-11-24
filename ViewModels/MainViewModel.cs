@@ -151,6 +151,14 @@ public partial class MainViewModel : ObservableObject
 		new("ru", "Russia")
 	};
 
+    public IReadOnlyList<KeyValuePair<string, CloseBehavior>> CloseBehaviorOptions { get; } =
+        new List<KeyValuePair<string, CloseBehavior>>
+        {
+            new("Спрашивать каждый раз", CloseBehavior.AskEveryTime),
+            new("Свернуть в трей", CloseBehavior.MinimizeToTray),
+            new("Закрыть приложение", CloseBehavior.ExitApp)
+        };
+
 	public AutoAcceptMethod AutoAcceptMethod
 	{
 		get
@@ -185,6 +193,19 @@ public partial class MainViewModel : ObservableObject
 			}
 		}
 	}
+
+    private CloseBehavior _closeBehavior;
+    public CloseBehavior CloseBehavior
+    {
+        get => _closeBehavior;
+        set
+        {
+            if (SetProperty(ref _closeBehavior, value))
+            {
+                _settingsService.SaveSetting("CloseBehavior", value.ToString());
+            }
+        }
+    }
 
 	private bool _isAutoAcceptEnabled;
 	public bool IsAutoAcceptEnabled
@@ -313,6 +334,12 @@ public partial class MainViewModel : ObservableObject
 		
 		// Загружаем настройку скрытия логина
 		_hideLogin = _settingsService.LoadSetting("HideLogin", false);
+
+        var closeBehaviorValue = _settingsService.LoadSetting("CloseBehavior", CloseBehavior.AskEveryTime.ToString());
+        if (!Enum.TryParse(closeBehaviorValue, out _closeBehavior))
+        {
+            _closeBehavior = CloseBehavior.AskEveryTime;
+        }
 		
 		// Загружаем состояние автоматизации
 		var automationSettings = _settingsService.LoadSetting<AutomationSettings>("AutomationSettings", new AutomationSettings());
@@ -1050,6 +1077,7 @@ public partial class MainViewModel : ObservableObject
                 SelectedAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
                 SelectedAccount.SummonerName = accountInfo.Value.SummonerName;
                 SelectedAccount.Rank = accountInfo.Value.Rank;
+                SelectedAccount.RankDisplay = accountInfo.Value.Rank;
                 SelectedAccount.RiotId = accountInfo.Value.RiotId;
                 SelectedAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
                 _accountsStorage.SaveAccounts(Accounts);
@@ -1174,8 +1202,14 @@ public partial class MainViewModel : ObservableObject
                 if (matchingAccount.Rank != accountInfo.Value.Rank && !string.IsNullOrEmpty(accountInfo.Value.Rank))
                 {
                     matchingAccount.Rank = accountInfo.Value.Rank;
+                    matchingAccount.RankDisplay = accountInfo.Value.Rank;
                     needsUpdate = true;
                     _logger.Info($"AutoLoadAccountInfoAsync: Updated Rank to {accountInfo.Value.Rank}");
+                }
+                else if (matchingAccount.RankDisplay != accountInfo.Value.Rank && !string.IsNullOrEmpty(accountInfo.Value.Rank))
+                {
+                    matchingAccount.RankDisplay = accountInfo.Value.Rank;
+                    needsUpdate = true;
                 }
                 
                 if (matchingAccount.RiotId != accountInfo.Value.RiotId && !string.IsNullOrEmpty(accountInfo.Value.RiotId))
@@ -1261,6 +1295,7 @@ public partial class MainViewModel : ObservableObject
             SelectedAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
             SelectedAccount.SummonerName = accountInfo.Value.SummonerName;
             SelectedAccount.Rank = accountInfo.Value.Rank;
+            SelectedAccount.RankDisplay = accountInfo.Value.Rank;
             SelectedAccount.RiotId = accountInfo.Value.RiotId;
             SelectedAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
             

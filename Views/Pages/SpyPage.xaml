@@ -12,81 +12,95 @@
         <conv:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
     </UserControl.Resources>
     
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="20">
-            <!-- Предупреждение -->
-            <Border Background="#FFFF6B6B" CornerRadius="8" Padding="12" Margin="0,0,0,15">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                        <ui:SymbolIcon Symbol="Warning24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
-                        <TextBlock Text="ПРЕДУПРЕЖДЕНИЕ" FontSize="13" FontWeight="Bold" Foreground="White"/>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <StackPanel Grid.Row="0" Margin="20,20,20,0">
+            <TextBlock Text="Reveal (шпион)" FontSize="24" FontWeight="Bold" Margin="0,0,0,6"/>
+            <TextBlock Text="Информация об игроках вашей команды в чемпионском селекте" 
+                       FontSize="12" 
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                       Margin="0,0,0,16"/>
+        </StackPanel>
+        
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20,0,20,20">
+                <!-- Предупреждение -->
+                <Border Background="#FFFF6B6B" CornerRadius="8" Padding="12" Margin="0,0,0,16">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                            <ui:SymbolIcon Symbol="Warning24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
+                            <TextBlock Text="ПРЕДУПРЕЖДЕНИЕ" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                        </StackPanel>
+                        <TextBlock Text="Эта функция находится в серой зоне Riot Games. Использование может повлечь блокировку аккаунта. Разработчик не несёт ответственности." 
+                                   TextWrapping="Wrap" Foreground="White" FontSize="12"/>
                     </StackPanel>
-                    <TextBlock Text="Эта функция находится в серой зоне Riot Games. Использование может повлечь блокировку аккаунта. Разработчик не несёт ответственности." 
-                               TextWrapping="Wrap" Foreground="White" FontSize="12"/>
-                </StackPanel>
-            </Border>
-            
-            <!-- Кнопка получить информацию -->
-            <ui:Button Content="Получить информацию о команде" 
-                      Command="{Binding GetTeamInfoCommand}"
-                      Appearance="Primary"
-                      HorizontalAlignment="Stretch"
-                      Height="40"
-                      Margin="0,0,0,10"/>
-            
-            <!-- Статус команды -->
-            <Border Background="#FF1E1E1E" CornerRadius="8" Padding="12" Margin="0,0,0,20">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="Статус команды:" Margin="0,0,10,0" FontSize="13"/>
-                    <TextBlock Text="{Binding RevealTeamStatus}" 
-                              Foreground="{Binding RevealTeamStatusColor}"
-                              FontWeight="SemiBold"
-                              FontSize="13"/>
-                </StackPanel>
-            </Border>
-            
-            <!-- Информация о команде (динамически) -->
-            <ItemsControl ItemsSource="{Binding TeamPlayers}"
-                          Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <ui:Card Margin="0,0,0,10" Padding="12">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0">
-                                    <TextBlock Text="{Binding Name}"
-                                               FontSize="15"
-                                               FontWeight="SemiBold"
-                                               Margin="0,0,0,4"/>
-                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
-                                        <TextBlock Text="{Binding FullRank}" FontWeight="Medium" FontSize="13"/>
-                                        <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
-                                        <TextBlock Text="{Binding WinRate}" FontWeight="Medium" FontSize="13"/>
-                                        <TextBlock Text="{Binding Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
-                                        <TextBlock Text="{Binding Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
+                </Border>
+                
+                <!-- Кнопка получить информацию -->
+                <ui:Button Content="Получить информацию о команде" 
+                          Command="{Binding GetTeamInfoCommand}"
+                          Appearance="Primary"
+                          HorizontalAlignment="Stretch"
+                          Height="40"
+                          Margin="0,0,0,10"/>
+                
+                <!-- Статус команды -->
+                <Border Background="#FF1E1E1E" CornerRadius="8" Padding="12" Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Статус команды:" Margin="0,0,10,0" FontSize="13"/>
+                        <TextBlock Text="{Binding RevealTeamStatus}" 
+                                  Foreground="{Binding RevealTeamStatusColor}"
+                                  FontWeight="SemiBold"
+                                  FontSize="13"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Информация о команде (динамически) -->
+                <ItemsControl ItemsSource="{Binding TeamPlayers}"
+                              Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ui:Card Margin="0,0,0,10" Padding="12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,4"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                            <TextBlock Text="{Binding FullRank}" FontWeight="Medium" FontSize="13"/>
+                                            <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
+                                            <TextBlock Text="{Binding WinRate}" FontWeight="Medium" FontSize="13"/>
+                                            <TextBlock Text="{Binding Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
+                                            <TextBlock Text="{Binding Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
+                                        </StackPanel>
                                     </StackPanel>
-                                </StackPanel>
-                                <ui:Button Grid.Column="1"
-                                          Content="U.GG"
-                                          Appearance="Secondary"
-                                          Command="{Binding DataContext.OpenUggCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                          CommandParameter="{Binding UggLink}"
-                                          Width="60"
-                                          Height="28"
-                                          FontSize="12"/>
-                            </Grid>
-                        </ui:Card>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            
-            <!-- Настройки API -->
-            <ui:Card Margin="0,0,0,15">
-                <StackPanel Margin="15">
-                    <TextBlock Text="Настройки API" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                    <ui:Button Grid.Column="1"
+                                              Content="U.GG"
+                                              Appearance="Secondary"
+                                              Command="{Binding DataContext.OpenUggCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                              CommandParameter="{Binding UggLink}"
+                                              Width="60"
+                                              Height="28"
+                                              FontSize="12"/>
+                                </Grid>
+                            </ui:Card>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                
+                <!-- Настройки API -->
+                <ui:Card Margin="0,0,0,16">
+                    <StackPanel Margin="15">
+                        <TextBlock Text="Настройки API" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
                     
                     <TextBlock Text="Riot API ключ:" Margin="0,0,0,5" FontSize="12"/>
                     <ui:TextBox x:Name="ApiKeyTextBox" 
@@ -135,7 +149,7 @@
             <!-- Информация о функции -->
             <ui:Card>
                 <StackPanel Margin="15">
-                    <TextBlock Text="Что делает эта функция?" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                    <TextBlock Text="Что делает эта функция?" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                     
                     <TextBlock Text="• Показывает информацию о соратниках по команде в чемпионском селекте"
                                Margin="0,0,0,3" FontSize="12"/>
@@ -153,4 +167,5 @@
             </ui:Card>
         </StackPanel>
     </ScrollViewer>
+    </Grid>
 </UserControl>

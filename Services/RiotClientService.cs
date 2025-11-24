@@ -32,6 +32,33 @@ public partial class RiotClientService : IRiotClientService
     private static readonly Dictionary<string, DateTime> _lastLockfileLog = new();
     private static readonly string[] LcuProcessNames = new[] { "LeagueClientUx", "LeagueClientUxRender", "LeagueClient" };
     private static readonly string[] RcProcessNames = new[] { "RiotClientUx", "RiotClientUxRender", "Riot Client", "RiotClientServices" };
+    private static readonly string[] PreferredRankQueues =
+    {
+        "RANKED_SOLO_5x5",
+        "RANKED_FLEX_SR",
+        "RANKED_FLEX_TT",
+        "RANKED_TFT",
+        "RANKED_TFT_DOUBLE_UP",
+        "CHERRY"
+    };
+    private static readonly HashSet<string> PreferredRankQueueSet = new(PreferredRankQueues, StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> RankEmptyTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "NONE",
+        "NA",
+        "UNRANKED",
+        "UNDEFINED",
+        "UNRANKED_TIER",
+        "UNRANKED_DIVISION",
+        "UNRANKED_RANK",
+        "UNRANKED"
+    };
+    private static readonly HashSet<string> ApexTiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "MASTER",
+        "GRANDMASTER",
+        "CHALLENGER"
+    };
     private string? _cachedLeagueInstallPath;
     private LeagueClientInfo? _leagueInfoCache;
     private int? _leagueInfoPidCache;
@@ -3493,10 +3520,14 @@ public partial class RiotClientService : IRiotClientService
     {
         try
         {
-            var lcu = FindLockfile("LCU");
-            if (lcu == null) return null;
-            
-            using var client = CreateHttpClient(lcu.Port, lcu.Password);
+            var lcuAuth = await GetLcuAuthAsync();
+            if (lcuAuth == null)
+            {
+                return null;
+            }
+
+            var (port, password) = lcuAuth.Value;
+            using var client = CreateHttpClient(port, password);
             
             // Получаем информацию о текущей сессии для проверки username
             string? loggedInUsername = null;
@@ -3526,7 +3557,7 @@ public partial class RiotClientService : IRiotClientService
             using var summonerDoc = JsonDocument.Parse(summonerJson);
             var summonerRoot = summonerDoc.RootElement;
             
-            var summonerName = summonerRoot.TryGetProperty("displayName", out var nameProp) 
+            var displayName = summonerRoot.TryGetProperty("displayName", out var nameProp) 
                 ? nameProp.GetString() ?? string.Empty 
                 : string.Empty;
             
@@ -3538,80 +3569,62 @@ public partial class RiotClientService : IRiotClientService
                 ? tagLineProp.GetString() ?? string.Empty 
                 : string.Empty;
             
-            var riotId = string.IsNullOrEmpty(gameName) || string.IsNullOrEmpty(tagLine)
-                ? summonerName
-                : $"{gameName}#{tagLine}";
+            var internalName = summonerRoot.TryGetProperty("internalName", out var internalNameProp)
+                ? internalNameProp.GetString() ?? string.Empty
+                : string.Empty;
+
+            var summonerName = !string.IsNullOrWhiteSpace(displayName)
+                ? displayName
+                : (!string.IsNullOrWhiteSpace(gameName)
+                    ? gameName
+                    : internalName);
+            
+            var riotId = (!string.IsNullOrWhiteSpace(gameName) && !string.IsNullOrWhiteSpace(tagLine))
+                ? $"{gameName}#{tagLine}"
+                : (!string.IsNullOrWhiteSpace(displayName)
+                    ? displayName
+                    : summonerName);
+
+            if (string.IsNullOrWhiteSpace(riotId))
+            {
+                riotId = string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(summonerName))
+            {
+                summonerName = riotId;
+            }
             
             var profileIconId = summonerRoot.TryGetProperty("profileIconId", out var iconProp) 
                 ? iconProp.GetInt32() 
                 : 0;
             
-            var avatarUrl = $"https://ddragon.leagueoflegends.com/cdn/latest/img/profileicon/{profileIconId}.png";
+            var dataDragonService = (System.Windows.Application.Current as LolManager.App)?.GetService<DataDragonService>();
+            var avatarUrl = dataDragonService?.GetProfileIconUrl(profileIconId);
+            if (string.IsNullOrEmpty(avatarUrl))
+            {
+                avatarUrl = $"https://ddragon.leagueoflegends.com/cdn/latest/img/profileicon/{profileIconId}.png";
+            }
             
             var summonerId = summonerRoot.TryGetProperty("summonerId", out var idProp) 
                 ? idProp.GetInt64() 
                 : 0;
+
+            var puuid = summonerRoot.TryGetProperty("puuid", out var puuidProp)
+                ? puuidProp.GetString() ?? string.Empty
+                : string.Empty;
             
-            string rank = string.Empty;
-            string tier = string.Empty;
-            if (summonerId > 0)
+            var (rank, tier) = await FetchRankInfoAsync(client, summonerId, puuid);
+            if (string.IsNullOrWhiteSpace(rank))
             {
-                try
-                {
-                    var rankedResp = await client.GetAsync($"/lol-ranked/v1/ranked-stats/{summonerId}");
-                    if (rankedResp.IsSuccessStatusCode)
-                    {
-                        var rankedJson = await rankedResp.Content.ReadAsStringAsync();
-                        using var rankedDoc = JsonDocument.Parse(rankedJson);
-                        var rankedRoot = rankedDoc.RootElement;
-                        
-                        if (rankedRoot.TryGetProperty("queues", out var queues) && queues.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var queue in queues.EnumerateArray())
-                            {
-                                if (queue.TryGetProperty("queueType", out var queueType) && 
-                                    queueType.GetString() == "RANKED_SOLO_5x5")
-                                {
-                                    if (queue.TryGetProperty("tier", out var tierProp) && 
-                                        queue.TryGetProperty("rank", out var rankProp))
-                                    {
-                                        tier = tierProp.GetString() ?? string.Empty;
-                                        var rankStr = rankProp.GetString() ?? string.Empty;
-                                        rank = $"{tier} {rankStr}".Trim();
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if (string.IsNullOrEmpty(rank))
-                            {
-                                foreach (var queue in queues.EnumerateArray())
-                                {
-                                    if (queue.TryGetProperty("tier", out var tierProp) && 
-                                        queue.TryGetProperty("rank", out var rankProp))
-                                    {
-                                        tier = tierProp.GetString() ?? string.Empty;
-                                        var rankStr = rankProp.GetString() ?? string.Empty;
-                                        rank = $"{tier} {rankStr}".Trim();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch
-                {
-                }
+                rank = "Без ранга";
             }
-            
+
             string rankIconUrl = string.Empty;
             if (!string.IsNullOrEmpty(tier))
             {
-                // Data Dragon использует формат: Emblem_{Tier}.png (например, Emblem_Iron.png, Emblem_Gold.png)
-                // tier приходит как "IRON", "GOLD", "PLATINUM" и т.д. (все заглавные)
-                var tierFormatted = tier.Split(' ')[0].ToUpperInvariant(); // Берем только название ранга без цифры (например, "IRON" из "IRON IV")
-                rankIconUrl = $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/Emblem_{tierFormatted}.png";
+                rankIconUrl = dataDragonService?.GetRankIconUrl(tier) 
+                              ?? $"https://ddragon.leagueoflegends.com/cdn/img/ranked-emblems/Emblem_{tier.Split(' ')[0]}.png";
             }
             
             return (avatarUrl, summonerName, rank, riotId, rankIconUrl, loggedInUsername);
@@ -3620,6 +3633,364 @@ public partial class RiotClientService : IRiotClientService
         {
             return null;
         }
+    }
+
+    private async Task<(string Rank, string Tier)> FetchRankInfoAsync(HttpClient client, long summonerId, string puuid)
+    {
+        var (puuidRank, puuidTier, puuidSuccess) = await TryGetRankedStatsByPuuidAsync(client, puuid);
+        if (puuidSuccess)
+        {
+            return (puuidRank, puuidTier);
+        }
+
+        var (legacyRank, legacyTier, legacySuccess) = await TryGetRankedStatsBySummonerIdAsync(client, summonerId);
+        if (legacySuccess)
+        {
+            return (legacyRank, legacyTier);
+        }
+
+        var (currentRank, currentTier, currentSuccess) = await TryGetCurrentRankedStatsAsync(client);
+        if (currentSuccess)
+        {
+            return (currentRank, currentTier);
+        }
+
+        return (string.Empty, string.Empty);
+    }
+
+    private async Task<(string RankDisplay, string Tier, bool HasData)> TryGetCurrentRankedStatsAsync(HttpClient client)
+    {
+        try
+        {
+            var currentResp = await client.GetAsync("/lol-ranked/v1/current-ranked-stats/summoner");
+            if (!currentResp.IsSuccessStatusCode)
+            {
+                _logger.Debug($"FetchRankInfoAsync: current-ranked-stats returned {(int)currentResp.StatusCode}");
+                return (string.Empty, string.Empty, false);
+            }
+
+            var currentJson = await currentResp.Content.ReadAsStringAsync();
+            using var currentDoc = JsonDocument.Parse(currentJson);
+            var currentRank = ExtractRankFromPayload(currentDoc.RootElement);
+            if (!string.IsNullOrEmpty(currentRank.RankDisplay))
+            {
+                return (currentRank.RankDisplay, currentRank.Tier, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"FetchRankInfoAsync: current-ranked-stats failed: {ex.Message}");
+        }
+
+        return (string.Empty, string.Empty, false);
+    }
+
+    private async Task<(string RankDisplay, string Tier, bool HasData)> TryGetRankedStatsBySummonerIdAsync(HttpClient client, long summonerId)
+    {
+        if (summonerId <= 0)
+        {
+            return (string.Empty, string.Empty, false);
+        }
+
+        try
+        {
+            var rankedResp = await client.GetAsync($"/lol-ranked/v1/ranked-stats/{summonerId}");
+            if (!rankedResp.IsSuccessStatusCode)
+            {
+                _logger.Debug($"FetchRankInfoAsync: ranked-stats returned {(int)rankedResp.StatusCode}");
+                return (string.Empty, string.Empty, false);
+            }
+
+            var rankedJson = await rankedResp.Content.ReadAsStringAsync();
+            using var rankedDoc = JsonDocument.Parse(rankedJson);
+            var legacyRank = ExtractRankFromPayload(rankedDoc.RootElement);
+            if (!string.IsNullOrEmpty(legacyRank.RankDisplay))
+            {
+                return (legacyRank.RankDisplay, legacyRank.Tier, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"FetchRankInfoAsync: ranked-stats failed: {ex.Message}");
+        }
+
+        return (string.Empty, string.Empty, false);
+    }
+
+    private async Task<(string RankDisplay, string Tier, bool HasData)> TryGetRankedStatsByPuuidAsync(HttpClient client, string puuid)
+    {
+        if (string.IsNullOrWhiteSpace(puuid))
+        {
+            return (string.Empty, string.Empty, false);
+        }
+
+        try
+        {
+            var rankedResp = await client.GetAsync($"/lol-ranked/v1/ranked-stats/{puuid}");
+            if (!rankedResp.IsSuccessStatusCode)
+            {
+                _logger.Debug($"FetchRankInfoAsync: ranked-stats by puuid returned {(int)rankedResp.StatusCode}");
+                return (string.Empty, string.Empty, false);
+            }
+
+            var rankedJson = await rankedResp.Content.ReadAsStringAsync();
+            using var rankedDoc = JsonDocument.Parse(rankedJson);
+            var ranked = ExtractRankFromPayload(rankedDoc.RootElement);
+            if (!string.IsNullOrEmpty(ranked.RankDisplay))
+            {
+                return (ranked.RankDisplay, ranked.Tier, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Debug($"FetchRankInfoAsync: ranked-stats by puuid failed: {ex.Message}");
+        }
+
+        return (string.Empty, string.Empty, false);
+    }
+
+    private static (string RankDisplay, string Tier) ExtractRankFromPayload(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            if (root.TryGetProperty("queueMap", out var queueMap) && queueMap.ValueKind == JsonValueKind.Object)
+            {
+                var mapResult = ExtractRankFromQueueMap(queueMap);
+                if (!string.IsNullOrEmpty(mapResult.RankDisplay))
+                {
+                    return mapResult;
+                }
+            }
+
+            if (root.TryGetProperty("queues", out var queueArray) && queueArray.ValueKind == JsonValueKind.Array)
+            {
+                var arrayResult = ExtractRankFromQueueArray(queueArray);
+                if (!string.IsNullOrEmpty(arrayResult.RankDisplay))
+                {
+                    return arrayResult;
+                }
+            }
+
+            if (root.TryGetProperty("highestRankedEntry", out var highestEntry) && highestEntry.ValueKind == JsonValueKind.Object)
+            {
+                var highestResult = ParseRankQueueElement(highestEntry);
+                if (!string.IsNullOrEmpty(highestResult.RankDisplay))
+                {
+                    return highestResult;
+                }
+            }
+        }
+        else if (root.ValueKind == JsonValueKind.Array)
+        {
+            var arrayResult = ExtractRankFromQueueArray(root);
+            if (!string.IsNullOrEmpty(arrayResult.RankDisplay))
+            {
+                return arrayResult;
+            }
+        }
+
+        return (string.Empty, string.Empty);
+    }
+
+    private static (string RankDisplay, string Tier) ExtractRankFromQueueMap(JsonElement queueMap)
+    {
+        foreach (var queueName in PreferredRankQueues)
+        {
+            if (queueMap.TryGetProperty(queueName, out var queueElement))
+            {
+                var parsed = ParseRankQueueElement(queueElement);
+                if (!string.IsNullOrEmpty(parsed.RankDisplay))
+                {
+                    return parsed;
+                }
+            }
+        }
+
+        foreach (var property in queueMap.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var parsed = ParseRankQueueElement(property.Value);
+            if (!string.IsNullOrEmpty(parsed.RankDisplay))
+            {
+                return parsed;
+            }
+        }
+
+        return (string.Empty, string.Empty);
+    }
+
+    private static (string RankDisplay, string Tier) ExtractRankFromQueueArray(JsonElement queueArray)
+    {
+        JsonElement fallbackElement = default;
+        var hasFallback = false;
+
+        foreach (var queue in queueArray.EnumerateArray())
+        {
+            if (queue.ValueKind != JsonValueKind.Object)
+                continue;
+
+            var queueType = ExtractString(queue, "queueType", "queueId");
+            if (!string.IsNullOrEmpty(queueType) && PreferredRankQueueSet.Contains(queueType))
+            {
+                var parsed = ParseRankQueueElement(queue);
+                if (!string.IsNullOrEmpty(parsed.RankDisplay))
+                {
+                    return parsed;
+                }
+            }
+
+            if (!hasFallback)
+            {
+                fallbackElement = queue;
+                hasFallback = true;
+            }
+        }
+
+        if (hasFallback)
+        {
+            var parsedFallback = ParseRankQueueElement(fallbackElement);
+            if (!string.IsNullOrEmpty(parsedFallback.RankDisplay))
+            {
+                return parsedFallback;
+            }
+        }
+
+        return (string.Empty, string.Empty);
+    }
+
+    private static (string RankDisplay, string Tier) ParseRankQueueElement(JsonElement queueElement)
+    {
+        if (queueElement.ValueKind != JsonValueKind.Object)
+            return (string.Empty, string.Empty);
+
+        var tier = NormalizeRankToken(ExtractString(queueElement, "tier", "tierName", "ratedTier", "highestTier", "highestRankTier", "tierRank"));
+        var division = NormalizeRankToken(ExtractString(queueElement, "division", "rank", "divisionName", "tierDivision"));
+        var isUnranked = queueElement.TryGetProperty("isUnranked", out var unrankedProp) && unrankedProp.ValueKind == JsonValueKind.True && unrankedProp.GetBoolean();
+        if (string.IsNullOrWhiteSpace(division))
+        {
+            division = NormalizeRankToken(ExtractString(queueElement, "divisionTier"));
+        }
+
+        var lp = ExtractInt(queueElement, "leaguePoints", "leaguePointsEarned", "lp", "leaguePoint");
+
+        if (string.IsNullOrWhiteSpace(tier) && queueElement.TryGetProperty("highestRankedEntry", out var nestedHighest) && nestedHighest.ValueKind == JsonValueKind.Object)
+        {
+            var nested = ParseRankQueueElement(nestedHighest);
+            if (!string.IsNullOrEmpty(nested.RankDisplay))
+            {
+                return nested;
+            }
+        }
+
+        var rankDisplay = BuildRankDisplay(tier, division, lp, isUnranked);
+        if (string.IsNullOrWhiteSpace(rankDisplay))
+        {
+            rankDisplay = NormalizeRankToken(ExtractString(queueElement, "rankedRating", "rankedTierName"));
+        }
+
+        if (string.IsNullOrWhiteSpace(rankDisplay))
+        {
+            var rating = ExtractInt(queueElement, "ratedRating");
+            if (rating > 0)
+            {
+                rankDisplay = $"RATING {rating}";
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(rankDisplay) && isUnranked)
+        {
+            rankDisplay = "UNRANKED";
+        }
+
+        return (rankDisplay, tier);
+    }
+
+    private static string ExtractString(JsonElement element, params string[] propertyNames)
+    {
+        foreach (var property in propertyNames)
+        {
+            if (string.IsNullOrEmpty(property))
+                continue;
+
+            if (element.TryGetProperty(property, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                var value = prop.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static int ExtractInt(JsonElement element, params string[] propertyNames)
+    {
+        foreach (var property in propertyNames)
+        {
+            if (string.IsNullOrEmpty(property))
+                continue;
+
+            if (element.TryGetProperty(property, out var prop) && prop.ValueKind == JsonValueKind.Number)
+            {
+                if (prop.TryGetInt32(out var value))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private static string NormalizeRankToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        var normalized = value.Trim();
+        return RankEmptyTokens.Contains(normalized) ? string.Empty : normalized;
+    }
+
+    private static string BuildRankDisplay(string tier, string division, int lp, bool isUnranked)
+    {
+        if (isUnranked || string.IsNullOrWhiteSpace(tier) || RankEmptyTokens.Contains(tier))
+            return string.Empty;
+
+        var builder = new StringBuilder();
+        var tierFormatted = ToTitleCase(tier);
+        if (!string.IsNullOrWhiteSpace(tierFormatted))
+        {
+            builder.Append(tierFormatted);
+        }
+
+        if (!string.IsNullOrWhiteSpace(division) &&
+            !RankEmptyTokens.Contains(division) &&
+            !IsApexTier(tier))
+        {
+            if (builder.Length > 0) builder.Append(' ');
+            builder.Append(division.ToUpperInvariant());
+        }
+
+        if (builder.Length > 0)
+        {
+            builder.Append(" • ").Append(lp).Append(" LP");
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static bool IsApexTier(string tier) => !string.IsNullOrWhiteSpace(tier) && ApexTiers.Contains(tier);
+
+    private static string ToTitleCase(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+        var lower = value.ToLowerInvariant();
+        return char.ToUpperInvariant(lower[0]) + (lower.Length > 1 ? lower[1..] : string.Empty);
     }
 
     public async Task<string> GetCurrentSummonerPuuidAsync()

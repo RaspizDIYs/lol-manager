@@ -8,5 +8,6 @@ public class SkinInfo
     public string ChampionName { get; set; } = string.Empty;
     public int ChampionId { get; set; }
     public int BackgroundSkinId { get; set; }
+    public string SplashUrl { get; set; } = string.Empty;
 }
 

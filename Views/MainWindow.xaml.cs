@@ -10,6 +10,7 @@ using LolManager.ViewModels;
 using System.Threading.Tasks;
 using H.NotifyIcon;
 using LolManager.Services;
+using LolManager.Models;
 
 namespace LolManager.Views;
 
@@ -203,34 +204,62 @@ public partial class MainWindow : FluentWindow
     private void Window_Closing(object? sender, CancelEventArgs e)
     {
         _logger?.Info($"[WINDOW] Window_Closing вызван, _isRealClose={_isRealClose}");
-        
-        if (!_isRealClose)
-        {
-            e.Cancel = true;
-            _logger?.Info("[WINDOW] Показываем меню выбора действия");
-            
-            CloseActionPopup.IsOpen = true;
-        }
-        else
+
+        if (_isRealClose)
         {
             _logger?.Info("[WINDOW] Реальное закрытие приложения");
+            return;
+        }
+
+        var behavior = ViewModel?.CloseBehavior ?? CloseBehavior.AskEveryTime;
+        _logger?.Info($"[WINDOW] Close behavior: {behavior}");
+
+        switch (behavior)
+        {
+            case CloseBehavior.MinimizeToTray:
+                e.Cancel = true;
+                HideWindowToTray();
+                break;
+            case CloseBehavior.ExitApp:
+                _isRealClose = true;
+                CloseActionPopup.IsOpen = false;
+                break;
+            case CloseBehavior.AskEveryTime:
+            default:
+                e.Cancel = true;
+                _logger?.Info("[WINDOW] Показываем меню выбора действия");
+                CloseActionPopup.IsOpen = true;
+                break;
         }
     }
     
     private void MinimizeToTrayButton_Click(object sender, RoutedEventArgs e)
     {
         _logger?.Info("[WINDOW] Выбрано сворачивание в трей");
+        HideWindowToTray();
+    }
+    
+    private void ExitAppButton_Click(object sender, RoutedEventArgs e)
+    {
+        _logger?.Info("[WINDOW] Выбрано полное закрытие приложения");
         CloseActionPopup.IsOpen = false;
-        
+        _isRealClose = true;
+        Application.Current.Shutdown();
+    }
+
+    private void HideWindowToTray()
+    {
+        CloseActionPopup.IsOpen = false;
+
         var app = (App)Application.Current;
-        
+
         if (app.TrayIcon == null)
         {
             _logger?.Warning("[WINDOW] Трей-иконка не доступна, минимизация в панель задач");
             WindowState = WindowState.Minimized;
             return;
         }
-        
+
         try
         {
             app.TrayIcon.ForceCreate();
@@ -242,14 +271,6 @@ public partial class MainWindow : FluentWindow
             _logger?.Error($"[WINDOW] Ошибка скрытия в трей: {ex.Message}");
             WindowState = WindowState.Minimized;
         }
-    }
-    
-    private void ExitAppButton_Click(object sender, RoutedEventArgs e)
-    {
-        _logger?.Info("[WINDOW] Выбрано полное закрытие приложения");
-        CloseActionPopup.IsOpen = false;
-        _isRealClose = true;
-        Application.Current.Shutdown();
     }
     
     

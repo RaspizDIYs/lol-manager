@@ -48,33 +48,43 @@ public partial class CustomizationPage : UserControl
 
     private void BackgroundChampion_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is FrameworkElement element && element.DataContext is string championName)
+        if (sender is FrameworkElement element && element.DataContext is string championName && ViewModel != null)
         {
-            if (ViewModel != null)
-            {
-                ViewModel.SelectedChampionForBackground = championName;
-            }
+            ViewModel.SelectedChampionForBackground = championName;
         }
     }
     
-        private void BackgroundSkin_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void BackgroundSkin_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is Models.SkinInfo skin && ViewModel != null)
         {
-            if (sender is FrameworkElement element && element.DataContext is Models.SkinInfo skin)
-            {
-                if (ViewModel != null)
-                {
-                    ViewModel.SelectedChampionForBackground = skin.ChampionName;
-                    ViewModel.SelectedSkinForBackground = skin;
-                }
-            }
+            ViewModel.SelectedChampionForBackground = skin.ChampionName;
+            ViewModel.SelectedSkinForBackground = skin;
+        }
+    }
+
+    private void Image_ImageFailed(object sender, System.Windows.ExceptionRoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Image image)
+        {
+            image.Source = null;
+        }
+    }
+
+    private void SkinsScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (ViewModel?.HasMoreSkins != true)
+        {
+            return;
         }
 
-        private void Image_ImageFailed(object sender, System.Windows.ExceptionRoutedEventArgs e)
+        if (e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 80)
         {
-            if (sender is System.Windows.Controls.Image image)
+            if (ViewModel.LoadMoreSkinsCommand.CanExecute(null))
             {
-                image.Source = null;
+                ViewModel.LoadMoreSkinsCommand.Execute(null);
             }
         }
+    }
 }
 
