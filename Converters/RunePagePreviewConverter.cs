@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Data;
+using System.Windows.Media;
 using LolManager.Models;
 
 namespace LolManager.Converters;
@@ -14,7 +15,7 @@ public class RunePagePreviewConverter : IMultiValueConverter
         if (values[0] is not RunePage runePage)
             return Array.Empty<string>();
 
-        var runeIcons = new List<string>();
+        var runeIcons = new List<ImageSource>();
         
         var runeDataService = ((App)System.Windows.Application.Current).GetService<Services.RuneDataService>();
         
@@ -29,7 +30,11 @@ public class RunePagePreviewConverter : IMultiValueConverter
                     !string.IsNullOrWhiteSpace(rune.Icon) && 
                     rune.Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
-                    runeIcons.Add(rune.Icon);
+                    var icon = ImageHelper.Load(rune.Icon, 32);
+                    if (icon != null)
+                    {
+                        runeIcons.Add(icon);
+                    }
                 }
             }
         }
@@ -45,7 +50,7 @@ public class RunePagePreviewConverter : IMultiValueConverter
         TryAddRuneIcon(runePage.StatMod2Id);
         TryAddRuneIcon(runePage.StatMod3Id);
 
-        return runeIcons.ToArray(); // Возвращаем все (не только первые 9)
+        return runeIcons.ToArray();
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
