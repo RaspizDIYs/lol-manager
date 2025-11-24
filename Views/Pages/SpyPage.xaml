@@ -32,7 +32,7 @@
                 <Border Background="#FFFF6B6B" CornerRadius="8" Padding="12" Margin="0,0,0,16">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                            <ui:SymbolIcon Symbol="Warning24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
+                            <ui:SymbolIcon Symbol="Info24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
                             <TextBlock Text="ПРЕДУПРЕЖДЕНИЕ" FontSize="13" FontWeight="Bold" Foreground="White"/>
                         </StackPanel>
                         <TextBlock Text="Эта функция находится в серой зоне Riot Games. Использование может повлечь блокировку аккаунта. Разработчик не несёт ответственности." 

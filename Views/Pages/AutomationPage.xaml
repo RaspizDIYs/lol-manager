@@ -260,9 +260,10 @@
                             <ui:Button Grid.Column="1"
                                       Content="⇄"
                                       FontSize="16"
-                                      Width="40"
+                                      Height="36"
                                       VerticalAlignment="Bottom"
                                       Margin="6,0,6,0"
+                                      Padding="8,0"
                                       Command="{Binding SwapSummonerSpellsCommand}"
                                       IsEnabled="{Binding IsAutomationEnabled}"
                                       ToolTip="Поменять местами"/>
@@ -396,6 +397,93 @@
                                                        Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteRunePageCommand}"
                                                        CommandParameter="{Binding}"
                                                        ToolTip="Удалить"/>
+                                        </Grid>
+                                    </ui:Card>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ui:Card>
+
+                <!-- Биндинги -->
+                <ui:Card Padding="16" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Биндинги" 
+                                   FontSize="16" 
+                                   FontWeight="SemiBold" 
+                                   Margin="0,0,0,8"/>
+                        
+                        <TextBlock Text="Автоматически применяет сохраненные биндинги для выбранного чемпиона"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                   Margin="0,0,0,12"
+                                   TextWrapping="Wrap"/>
+
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <ComboBox Grid.Column="0"
+                                      ItemsSource="{Binding Champions}"
+                                      SelectedItem="{Binding SelectedChampionForBinding, Mode=TwoWay}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      Margin="0,0,8,0"
+                                      ItemTemplate="{StaticResource ChampionTemplate}"
+                                      MaxDropDownHeight="350">
+                                <ComboBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <VirtualizingStackPanel/>
+                                    </ItemsPanelTemplate>
+                                </ComboBox.ItemsPanel>
+                            </ComboBox>
+
+                            <ui:Button Grid.Column="1"
+                                      Content="➕ Создать"
+                                      Command="{Binding CreateChampionBindingCommand}"
+                                      IsEnabled="{Binding IsAutomationEnabled}"
+                                      ToolTip="Создать биндинги для выбранного чемпиона"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding ChampionBindings}"
+                                      Visibility="{Binding ChampionBindings, Converter={StaticResource CollectionCountToVisibility}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <ui:Card Margin="0,0,0,8" Padding="12">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            
+                                            <StackPanel Grid.Column="0" Orientation="Vertical" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding ChampionName}"
+                                                          FontSize="14"
+                                                          FontWeight="SemiBold"
+                                                          Margin="0,0,0,4"/>
+                                                <TextBlock Text="{Binding GroupName}"
+                                                          FontSize="12"
+                                                          Foreground="{DynamicResource TextFillColorTertiaryBrush}"/>
+                                            </StackPanel>
+                                            
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <ui:Button Content="✏️ "
+                                                          Width="40"
+                                                          Height="36"
+                                                          Padding="8,6"
+                                                          Margin="0,0,4,0"
+                                                          Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.EditChampionBindingCommand}"
+                                                          CommandParameter="{Binding ChampionId}"
+                                                          ToolTip="Редактировать"/>
+                                                <ui:Button Content="🗑️ "
+                                                          Width="40"
+                                                          Height="36"
+                                                          Padding="8,6"
+                                                          Command="{Binding ElementName=AutomationPageRoot, Path=ViewModel.DeleteChampionBindingCommand}"
+                                                          CommandParameter="{Binding ChampionId}"
+                                                          ToolTip="Удалить"/>
+                                            </StackPanel>
                                         </Grid>
                                     </ui:Card>
                                 </DataTemplate>

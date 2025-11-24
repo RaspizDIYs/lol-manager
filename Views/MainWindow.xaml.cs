@@ -223,6 +223,7 @@ public partial class MainWindow : FluentWindow
             case CloseBehavior.ExitApp:
                 _isRealClose = true;
                 CloseActionPopup.IsOpen = false;
+                Application.Current.Shutdown();
                 break;
             case CloseBehavior.AskEveryTime:
             default:

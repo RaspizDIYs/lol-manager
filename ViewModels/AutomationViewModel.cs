@@ -52,7 +52,7 @@ public partial class AutomationViewModel : ObservableObject
     private string championSearchText = string.Empty;
     
     [ObservableProperty]
-    private bool isLoading = false;
+    private bool isLoading = true;
 
     public ObservableCollection<string> Champions { get; } = new();
     public ObservableCollection<string> FilteredChampionsForPick { get; } = new();
@@ -60,8 +60,10 @@ public partial class AutomationViewModel : ObservableObject
     public ObservableCollection<string> SummonerSpells { get; } = new();
     public ObservableCollection<RunePage> RunePages { get; } = new();
     public ObservableCollection<string> RunePageNames { get; } = new();
+    public ObservableCollection<ChampionBindingViewModel> ChampionBindings { get; } = new();
     
     private bool _isUpdatingSettings = false;
+    private BindingService? _bindingService;
 
     [ObservableProperty]
     private bool isPickDelayEnabled;
@@ -69,7 +71,10 @@ public partial class AutomationViewModel : ObservableObject
     [ObservableProperty]
     private int pickDelaySeconds;
 
-    public AutomationViewModel(ILogger logger, ISettingsService settingsService, DataDragonService dataDragonService, AutoAcceptService autoAcceptService, RuneDataService runeDataService, RiotClientService riotClientService, IRunePagesStorage runePagesStorage)
+    [ObservableProperty]
+    private string selectedChampionForBinding = "(Не выбрано)";
+
+    public AutomationViewModel(ILogger logger, ISettingsService settingsService, DataDragonService dataDragonService, AutoAcceptService autoAcceptService, RuneDataService runeDataService, RiotClientService riotClientService, IRunePagesStorage runePagesStorage, BindingService? bindingService = null)
     {
         _logger = logger;
         _settingsService = settingsService;
@@ -78,16 +83,14 @@ public partial class AutomationViewModel : ObservableObject
         _runeDataService = runeDataService;
         _riotClientService = riotClientService;
         _runePagesStorage = runePagesStorage;
+        _bindingService = bindingService;
         
         // Добавляем базовые элементы
         Champions.Add("(Не выбрано)");
         SummonerSpells.Add("(Не выбрано)");
         RunePageNames.Add("(Не выбрано)");
         
-        // Загружаем сохраненные настройки
-        LoadSettings();
-        
-        // Загружаем данные асинхронно
+        // Загружаем данные асинхронно (включая настройки)
         _ = LoadDataAsync();
         
         // Автосохранение и валидация при изменении настроек
@@ -140,13 +143,17 @@ public partial class AutomationViewModel : ObservableObject
 
     private async Task LoadDataAsync()
     {
-        if (IsLoading) return;
-        
         try
         {
-            IsLoading = true;
             _logger.Info("Начинаю загрузку данных автоматизации...");
             
+            // Загружаем настройки асинхронно
+            await Task.Run(() => LoadSettings()).ConfigureAwait(false);
+            
+            // Загружаем биндинги чемпионов асинхронно
+            await Task.Run(() => LoadChampionBindings()).ConfigureAwait(false);
+            
+            // Загружаем данные из DataDragon параллельно
             _logger.Info("Запрашиваю чемпионов...");
             var championsTask = _dataDragonService.GetChampionsAsync();
             _logger.Info("Запрашиваю заклинания...");
@@ -207,8 +214,11 @@ public partial class AutomationViewModel : ObservableObject
             _logger.Error($"❌ Ошибка загрузки данных автоматизации: {ex.Message}\n{ex.StackTrace}");
             
             // В случае ошибки добавляем заглушку
-            if (Champions.Count == 1) Champions.Add("(Ошибка загрузки)");
-            if (SummonerSpells.Count == 1) SummonerSpells.Add("(Ошибка загрузки)");
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                if (Champions.Count == 1) Champions.Add("(Ошибка загрузки)");
+                if (SummonerSpells.Count == 1) SummonerSpells.Add("(Ошибка загрузки)");
+            });
         }
         finally
         {
@@ -660,6 +670,145 @@ public partial class AutomationViewModel : ObservableObject
         else
         {
             SelectedRunePageName = "(Не выбрано)";
+        }
+    }
+
+    private void LoadChampionBindings()
+    {
+        if (_bindingService == null) return;
+        
+        try
+        {
+            ChampionBindings.Clear();
+            var bindings = _bindingService.GetChampionBindings();
+            
+            foreach (var kvp in bindings)
+            {
+                var championName = Champions.FirstOrDefault(c => 
+                {
+                    var id = _dataDragonService.GetChampionIdByName(c);
+                    return id == kvp.Key;
+                }) ?? $"Чемпион {kvp.Key}";
+                
+                ChampionBindings.Add(new ChampionBindingViewModel
+                {
+                    ChampionId = kvp.Key,
+                    ChampionName = championName,
+                    GroupName = kvp.Value.Name
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка загрузки биндингов: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private Task CreateChampionBindingAsync()
+    {
+        if (_bindingService == null)
+        {
+            _logger.Error("BindingService недоступен");
+            return Task.CompletedTask;
+        }
+
+        if (SelectedChampionForBinding == "(Не выбрано)" || string.IsNullOrWhiteSpace(SelectedChampionForBinding))
+        {
+            _logger.Warning("Чемпион не выбран для создания биндингов");
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            var championId = _dataDragonService.GetChampionIdByName(SelectedChampionForBinding);
+            if (championId <= 0)
+            {
+                _logger.Error($"Не удалось найти ID чемпиона: {SelectedChampionForBinding}");
+                return Task.CompletedTask;
+            }
+
+            var existingGroup = _bindingService.GetChampionBinding(championId);
+            var viewModel = new BindingEditorViewModel(_bindingService, _logger, championId, SelectedChampionForBinding, existingGroup?.Settings);
+            
+            var window = new Views.BindingEditorWindow(viewModel);
+            window.Owner = System.Windows.Application.Current.MainWindow;
+
+            if (window.ShowDialog() == true)
+            {
+                LoadChampionBindings();
+                _logger.Info($"Биндинги созданы для {SelectedChampionForBinding} (ID: {championId})");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка создания биндингов: {ex.Message}");
+        }
+        
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private Task EditChampionBindingAsync(int championId)
+    {
+        if (_bindingService == null)
+        {
+            _logger.Error("BindingService недоступен");
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            var group = _bindingService.GetChampionBinding(championId);
+            if (group == null)
+            {
+                _logger.Warning($"Биндинги для чемпиона ID {championId} не найдены");
+                return Task.CompletedTask;
+            }
+
+            var championName = Champions.FirstOrDefault(c => 
+            {
+                var id = _dataDragonService.GetChampionIdByName(c);
+                return id == championId;
+            }) ?? $"Чемпион {championId}";
+
+            var viewModel = new BindingEditorViewModel(_bindingService, _logger, championId, championName, group.Settings);
+            
+            var window = new Views.BindingEditorWindow(viewModel);
+            window.Owner = System.Windows.Application.Current.MainWindow;
+
+            if (window.ShowDialog() == true)
+            {
+                LoadChampionBindings();
+                _logger.Info($"Биндинги отредактированы для {championName} (ID: {championId})");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка редактирования биндингов: {ex.Message}");
+        }
+        
+        return Task.CompletedTask;
+    }
+
+    [RelayCommand]
+    private void DeleteChampionBinding(int championId)
+    {
+        if (_bindingService == null)
+        {
+            _logger.Error("BindingService недоступен");
+            return;
+        }
+
+        try
+        {
+            _bindingService.RemoveChampionBinding(championId);
+            LoadChampionBindings();
+            _logger.Info($"Биндинги удалены для чемпиона ID: {championId}");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Ошибка удаления биндингов: {ex.Message}");
         }
     }
 }

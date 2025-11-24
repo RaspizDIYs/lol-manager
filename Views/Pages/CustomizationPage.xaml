@@ -133,18 +133,40 @@
         </DataTemplate>
         
         <DataTemplate x:Key="ChallengeTemplate">
-            <Border BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
+            <Border CornerRadius="8"
                     Margin="4"
-                    Width="140"
-                    Height="140"
+                    Width="100"
+                    Height="100"
                     ClipToBounds="True"
-                    Cursor="Hand">
+                    Cursor="Hand"
+                    MouseLeftButtonDown="Challenge_MouseLeftButtonDown">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
+                        <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}"/>
+                        <Setter Property="BorderThickness" Value="1"/>
                         <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge1}" Value="{Binding}"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                <Setter Property="BorderThickness" Value="3"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge2}" Value="{Binding}"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                <Setter Property="BorderThickness" Value="3"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge3}" Value="{Binding}"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                <Setter Property="BorderThickness" Value="3"/>
+                            </MultiDataTrigger>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter Property="BorderBrush" Value="#FF6366F1"/>
                                 <Setter Property="BorderThickness" Value="2"/>
@@ -152,20 +174,46 @@
                         </Style.Triggers>
                     </Style>
                 </Border.Style>
-                <StackPanel>
-                    <Border Width="100" Height="100" Margin="20,10,20,0" CornerRadius="8" ClipToBounds="True">
-                        <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}}"
-                               Stretch="UniformToFill"/>
+                <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}, ConverterParameter=100}"
+                       Stretch="UniformToFill"/>
+            </Border>
+        </DataTemplate>
+        
+        <DataTemplate x:Key="SelectedChallengeTemplate">
+            <Border CornerRadius="8"
+                    Margin="4"
+                    Width="80"
+                    Height="80"
+                    ClipToBounds="True"
+                    Cursor="Hand"
+                    MouseLeftButtonDown="SelectedChallenge_MouseLeftButtonDown">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
+                        <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                        <Setter Property="BorderThickness" Value="2"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="BorderBrush" Value="#FFFF6B6B"/>
+                                <Setter Property="BorderThickness" Value="3"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}, ConverterParameter=80}"
+                           Stretch="UniformToFill"/>
+                    <Border Background="#80000000" 
+                            VerticalAlignment="Top" 
+                            HorizontalAlignment="Right"
+                            CornerRadius="0,8,0,8"
+                            Padding="4,2">
+                        <TextBlock Text="✕"
+                                   Foreground="White"
+                                   FontSize="12"
+                                   FontWeight="Bold"/>
                     </Border>
-                    <TextBlock Text="{Binding Name}"
-                               FontSize="11"
-                               FontWeight="SemiBold"
-                               TextAlignment="Center"
-                               TextWrapping="Wrap"
-                               Margin="8,4"
-                               TextTrimming="CharacterEllipsis"
-                               MaxHeight="30"/>
-                </StackPanel>
+                </Grid>
             </Border>
         </DataTemplate>
     </UserControl.Resources>
@@ -187,7 +235,7 @@
             <Border Background="#FFFF6B6B" CornerRadius="8" Padding="12" Margin="0,0,0,24">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                        <ui:SymbolIcon Symbol="Warning24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
+                        <ui:SymbolIcon Symbol="Info24" Foreground="White" FontSize="18" Margin="0,0,8,0"/>
                         <TextBlock Text="ПРЕДУПРЕЖДЕНИЕ" FontSize="13" FontWeight="Bold" Foreground="White"/>
                     </StackPanel>
                     <TextBlock Text="Эта функция находится в серой зоне Riot Games. Использование может повлечь блокировку аккаунта. Разработчик не несёт ответственности." 
@@ -332,10 +380,64 @@
                                    FontSize="16" 
                                    FontWeight="SemiBold" 
                                    Margin="0,0,0,4"/>
-                        <TextBlock Text="Выберите до 3 челенджей для отображения в профиле (можно выбрать одинаковые)" 
+                        <TextBlock Text="Выберите до 3 челенджей для отображения в профиле. Нажмите на иконку челенджа для выбора, на выбранный челендж - для удаления." 
                                    FontSize="11"
                                    Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                    TextWrapping="Wrap"/>
+                    </StackPanel>
+                    
+                    <!-- Выбранные челенджи -->
+                    <StackPanel Margin="0,0,0,12" Visibility="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.HasSelectedChallenges, Converter={StaticResource BoolToVisibility}}">
+                        <TextBlock Text="Выбранные челенджи:" 
+                                   FontSize="13" 
+                                   FontWeight="SemiBold" 
+                                   Margin="0,0,0,8"/>
+                        <ItemsControl ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenges}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border CornerRadius="8"
+                                            Margin="4"
+                                            Width="80"
+                                            Height="80"
+                                            ClipToBounds="True"
+                                            Cursor="Hand"
+                                            MouseLeftButtonDown="SelectedChallenge_MouseLeftButtonDown">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}"/>
+                                                <Setter Property="BorderBrush" Value="#FF6366F1"/>
+                                                <Setter Property="BorderThickness" Value="2"/>
+                                                <Style.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter Property="BorderBrush" Value="#FFFF6B6B"/>
+                                                        <Setter Property="BorderThickness" Value="3"/>
+                                                    </Trigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}, ConverterParameter=80}"
+                                                   Stretch="UniformToFill"/>
+                                            <Border Background="#80000000" 
+                                                    VerticalAlignment="Top" 
+                                                    HorizontalAlignment="Right"
+                                                    CornerRadius="0,8,0,8"
+                                                    Padding="4,2">
+                                                <TextBlock Text="✕"
+                                                           Foreground="White"
+                                                           FontSize="12"
+                                                           FontWeight="Bold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                     
                     <ui:TextBox Text="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.ChallengeSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -352,62 +454,6 @@
                             </ItemsControl.ItemsPanel>
                         </ItemsControl>
                     </ScrollViewer>
-                    
-                    <Grid Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        
-                        <ComboBox Grid.Column="0"
-                                  ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredChallenges}"
-                                  SelectedItem="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge1}"
-                                  Margin="0,0,4,0"
-                                  MaxDropDownHeight="300">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}}"
-                                               Width="24" Height="24" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        
-                        <ComboBox Grid.Column="1"
-                                  ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredChallenges}"
-                                  SelectedItem="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge2}"
-                                  Margin="4,0,4,0"
-                                  MaxDropDownHeight="300">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}}"
-                                               Width="24" Height="24" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                        
-                        <ComboBox Grid.Column="2"
-                                  ItemsSource="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.FilteredChallenges}"
-                                  SelectedItem="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SelectedChallenge3}"
-                                  Margin="4,0,0,0"
-                                  MaxDropDownHeight="300">
-                            <ComboBox.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Image Source="{Binding Converter={StaticResource ChallengeIconConverter}}"
-                                               Width="24" Height="24" Margin="0,0,8,0"/>
-                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ComboBox.ItemTemplate>
-                        </ComboBox>
-                    </Grid>
                     
                     <ui:Button Content="Применить"
                                Command="{Binding ElementName=CustomizationPageRoot, Path=ViewModel.SetChallengesCommand}"

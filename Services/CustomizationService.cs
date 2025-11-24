@@ -300,52 +300,69 @@ public class CustomizationService
             foreach (var challenge in root.EnumerateObject())
             {
                 var challengeValue = challenge.Value;
-                if (challengeValue.TryGetProperty("currentLevel", out var levelProp))
-                {
-                    var level = levelProp.GetString();
-                    if (level == null || level == "NONE") continue;
+                if (!challengeValue.TryGetProperty("currentLevel", out var levelProp))
+                    continue;
                     
-                    if (challengeValue.TryGetProperty("id", out var idProp) &&
-                        challengeValue.TryGetProperty("localizedNames", out var names))
+                var level = levelProp.GetString();
+                if (level == null || level == "NONE") continue;
+                
+                if (!challengeValue.TryGetProperty("id", out var idProp))
+                    continue;
+                
+                var challengeInfo = new ChallengeInfo
+                {
+                    Id = idProp.GetInt64(),
+                    Tier = level
+                };
+
+                // Получаем имя напрямую (как в исходном коде)
+                if (challengeValue.TryGetProperty("name", out var nameProp))
+                {
+                    challengeInfo.Name = nameProp.GetString() ?? string.Empty;
+                }
+                // Fallback на localizedNames если name нет
+                else if (challengeValue.TryGetProperty("localizedNames", out var names))
+                {
+                    if (names.TryGetProperty("name", out var nameObj) && nameObj.TryGetProperty("RU", out var ruName))
                     {
-                        var challengeInfo = new ChallengeInfo
-                        {
-                            Id = idProp.GetInt64()
-                        };
-
-                        if (names.TryGetProperty("name", out var nameObj) && nameObj.TryGetProperty("RU", out var ruName))
-                        {
-                            challengeInfo.Name = ruName.GetString() ?? string.Empty;
-                        }
-                        else if (names.TryGetProperty("name", out var nameObj2) && nameObj2.TryGetProperty("EN_US", out var enName))
-                        {
-                            challengeInfo.Name = enName.GetString() ?? string.Empty;
-                        }
-
-                        if (names.TryGetProperty("description", out var descObj) && descObj.TryGetProperty("RU", out var ruDesc))
-                        {
-                            challengeInfo.Description = ruDesc.GetString() ?? string.Empty;
-                        }
-                        else if (names.TryGetProperty("description", out var descObj2) && descObj2.TryGetProperty("EN_US", out var enDesc))
-                        {
-                            challengeInfo.Description = enDesc.GetString() ?? string.Empty;
-                        }
-
-                        if (challengeValue.TryGetProperty("iconPath", out var iconPath))
-                        {
-                            challengeInfo.IconUrl = iconPath.GetString() ?? string.Empty;
-                        }
-
-                        if (challengeValue.TryGetProperty("category", out var category))
-                        {
-                            challengeInfo.Category = category.GetString() ?? string.Empty;
-                        }
-
-                        if (!string.IsNullOrEmpty(challengeInfo.Name))
-                        {
-                            challenges.Add(challengeInfo);
-                        }
+                        challengeInfo.Name = ruName.GetString() ?? string.Empty;
                     }
+                    else if (names.TryGetProperty("name", out var nameObj2) && nameObj2.TryGetProperty("EN_US", out var enName))
+                    {
+                        challengeInfo.Name = enName.GetString() ?? string.Empty;
+                    }
+                }
+
+                // Получаем описание
+                if (challengeValue.TryGetProperty("localizedNames", out var descNames))
+                {
+                    if (descNames.TryGetProperty("description", out var descObj) && descObj.TryGetProperty("RU", out var ruDesc))
+                    {
+                        challengeInfo.Description = ruDesc.GetString() ?? string.Empty;
+                    }
+                    else if (descNames.TryGetProperty("description", out var descObj2) && descObj2.TryGetProperty("EN_US", out var enDesc))
+                    {
+                        challengeInfo.Description = enDesc.GetString() ?? string.Empty;
+                    }
+                }
+
+                // Определяем legacy статус
+                if (challengeValue.TryGetProperty("retireTimestamp", out var retireProp))
+                {
+                    challengeInfo.Legacy = retireProp.GetInt64() != 0;
+                }
+
+                // Формируем URL иконки токена (как в исходном коде)
+                challengeInfo.IconUrl = $"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/challenges/config/{challengeInfo.Id}/tokens/{level.ToLowerInvariant()}.png";
+
+                if (challengeValue.TryGetProperty("category", out var category))
+                {
+                    challengeInfo.Category = category.GetString() ?? string.Empty;
+                }
+
+                if (!string.IsNullOrEmpty(challengeInfo.Name))
+                {
+                    challenges.Add(challengeInfo);
                 }
             }
 
@@ -465,9 +482,24 @@ public class CustomizationService
             var (port, password) = lcuAuth.Value;
             using var client = CreateHttpClient(port, password);
 
+            // Формируем массив challengeIds: каждый ID повторяется 3 раза (как в исходном коде)
+            var finalChallengeIds = new List<long>();
+            foreach (var id in challengeIds)
+            {
+                finalChallengeIds.Add(id);
+                finalChallengeIds.Add(id);
+                finalChallengeIds.Add(id);
+            }
+            
+            // Ограничиваем до 3 элементов максимум
+            while (finalChallengeIds.Count > 3)
+            {
+                finalChallengeIds.RemoveAt(finalChallengeIds.Count - 1);
+            }
+            
             var payload = new
             {
-                challengeIds = challengeIds.ToArray(),
+                challengeIds = finalChallengeIds.ToArray(),
                 title = titleId == -1 ? string.Empty : titleId.ToString()
             };
             

@@ -12,14 +12,22 @@ public class ChallengeIconConverter : IValueConverter
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is ChallengeInfo challenge && !string.IsNullOrWhiteSpace(challenge.IconUrl))
+        if (value is ChallengeInfo challenge)
         {
-            var url = challenge.IconUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-                ? challenge.IconUrl
-                : $"https://ddragon.leagueoflegends.com/cdn/latest/img/challenge/{challenge.IconUrl}";
-
-            var width = ImageHelper.ResolveWidth(parameter, DefaultWidth);
-            return ImageHelper.Load(url, width) ?? DependencyProperty.UnsetValue;
+            // Используем IconUrl если он уже установлен (формат Community Dragon)
+            if (!string.IsNullOrWhiteSpace(challenge.IconUrl))
+            {
+                var width = ImageHelper.ResolveWidth(parameter, DefaultWidth);
+                return ImageHelper.Load(challenge.IconUrl, width) ?? DependencyProperty.UnsetValue;
+            }
+            
+            // Fallback: формируем URL если IconUrl пустой
+            if (challenge.Id > 0 && !string.IsNullOrWhiteSpace(challenge.Tier))
+            {
+                var url = $"https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/challenges/config/{challenge.Id}/tokens/{challenge.Tier.ToLowerInvariant()}.png";
+                var width = ImageHelper.ResolveWidth(parameter, DefaultWidth);
+                return ImageHelper.Load(url, width) ?? DependencyProperty.UnsetValue;
+            }
         }
         
         return DependencyProperty.UnsetValue;

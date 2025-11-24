@@ -43,8 +43,9 @@ public partial class AutomationPage : UserControl
                 var runeDataService = app.GetService<RuneDataService>();
                 var riotClientService = app.GetService<IRiotClientService>() as RiotClientService;
                 var runePagesStorage = app.GetService<IRunePagesStorage>();
+                var bindingService = app.GetService<BindingService>();
 
-                ViewModel = new AutomationViewModel(logger!, settingsService!, dataDragonService!, autoAcceptService!, runeDataService!, riotClientService!, runePagesStorage!);
+                ViewModel = new AutomationViewModel(logger!, settingsService!, dataDragonService!, autoAcceptService!, runeDataService!, riotClientService!, runePagesStorage!, bindingService);
                 
                 logger.Info("AutomationPage ViewModel initialized successfully");
             }

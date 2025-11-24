@@ -27,7 +27,6 @@
         <conv:IndexToVisibilityConverter x:Key="IndexToVisibility" />
         <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibility" />
         <conv:LogTypeConverter x:Key="LogTypeConverter" />
-        
         <!-- Стиль для выбранной навигационной кнопки -->
         <Style x:Key="SelectedNavButtonStyle" TargetType="ui:Button" BasedOn="{StaticResource {x:Type ui:Button}}">
             <Setter Property="Background">
@@ -304,8 +303,52 @@
                             <ScaleTransform ScaleX="1" ScaleY="1"/>
                         </ui:Button.RenderTransform>
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Person32" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <ui:SymbolIcon Symbol="Person24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
                             <TextBlock x:Name="AccountsText" Text="Аккаунты" VerticalAlignment="Center" 
+                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
+                        </StackPanel>
+                    </ui:Button>
+                    
+                    <ui:Button x:Name="AutomationButton"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left"
+                              Height="52"
+                              Margin="0,0,0,8"
+                              Appearance="Secondary"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              CornerRadius="12"
+                              Tag="4"
+                              Style="{StaticResource AnimatedNavButton}"
+                              Click="NavButton_Click">
+                        <ui:Button.RenderTransform>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        </ui:Button.RenderTransform>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Bot24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <TextBlock x:Name="AutomationText" Text="Автоматизация" VerticalAlignment="Center" 
+                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
+                        </StackPanel>
+                    </ui:Button>
+                    
+                    <ui:Button x:Name="CustomizationButton"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left"
+                              Height="52"
+                              Margin="0,0,0,8"
+                              Appearance="Secondary"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              CornerRadius="12"
+                              Tag="6"
+                              Style="{StaticResource AnimatedNavButton}"
+                              Click="NavButton_Click">
+                        <ui:Button.RenderTransform>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        </ui:Button.RenderTransform>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="PaintBrush24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <TextBlock x:Name="CustomizationText" Text="Кастомизация" VerticalAlignment="Center" 
                                       FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
                         </StackPanel>
                     </ui:Button>
@@ -326,8 +369,31 @@
                             <ScaleTransform ScaleX="1" ScaleY="1"/>
                         </ui:Button.RenderTransform>
                         <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Settings32" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <ui:SymbolIcon Symbol="Settings24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
                             <TextBlock x:Name="SettingsText" Text="Настройки" VerticalAlignment="Center" 
+                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
+                        </StackPanel>
+                    </ui:Button>
+                    
+                    <ui:Button x:Name="SpyButton"
+                              HorizontalAlignment="Stretch"
+                              HorizontalContentAlignment="Left"
+                              Height="52"
+                              Margin="0,0,0,8"
+                              Appearance="Secondary"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              CornerRadius="12"
+                              Tag="5"
+                              Style="{StaticResource AnimatedNavButton}"
+                              Click="NavButton_Click"
+                              Visibility="{Binding RevealSettings.IsEnabled, Converter={StaticResource BoolToVisibility}}">
+                        <ui:Button.RenderTransform>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        </ui:Button.RenderTransform>
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon Symbol="Eye24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
+                            <TextBlock x:Name="SpyText" Text="Шпион" VerticalAlignment="Center" 
                                       FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
                         </StackPanel>
                     </ui:Button>
@@ -372,73 +438,6 @@
                         <StackPanel Orientation="Horizontal">
                             <ui:SymbolIcon Symbol="Info24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
                             <TextBlock x:Name="InformationText" Text="Информация" VerticalAlignment="Center" 
-                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
-                        </StackPanel>
-                    </ui:Button>
-                    
-                    <ui:Button x:Name="AutomationButton"
-                              HorizontalAlignment="Stretch"
-                              HorizontalContentAlignment="Left"
-                              Height="52"
-                              Margin="0,0,0,8"
-                              Appearance="Secondary"
-                              Background="Transparent"
-                              BorderThickness="0"
-                              CornerRadius="12"
-                              Tag="4"
-                              Style="{StaticResource AnimatedNavButton}"
-                              Click="NavButton_Click">
-                        <ui:Button.RenderTransform>
-                            <ScaleTransform ScaleX="1" ScaleY="1"/>
-                        </ui:Button.RenderTransform>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="BotSparkle24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
-                            <TextBlock x:Name="AutomationText" Text="Автоматизация" VerticalAlignment="Center" 
-                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
-                        </StackPanel>
-                    </ui:Button>
-                    
-                    <ui:Button x:Name="SpyButton"
-                              HorizontalAlignment="Stretch"
-                              HorizontalContentAlignment="Left"
-                              Height="52"
-                              Margin="0,0,0,8"
-                              Appearance="Secondary"
-                              Background="Transparent"
-                              BorderThickness="0"
-                              CornerRadius="12"
-                              Tag="5"
-                              Style="{StaticResource AnimatedNavButton}"
-                              Click="NavButton_Click"
-                              Visibility="{Binding RevealSettings.IsEnabled, Converter={StaticResource BoolToVisibility}}">
-                        <ui:Button.RenderTransform>
-                            <ScaleTransform ScaleX="1" ScaleY="1"/>
-                        </ui:Button.RenderTransform>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="Eye24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
-                            <TextBlock x:Name="SpyText" Text="Шпион" VerticalAlignment="Center" 
-                                      FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
-                        </StackPanel>
-                    </ui:Button>
-                    
-                    <ui:Button x:Name="CustomizationButton"
-                              HorizontalAlignment="Stretch"
-                              HorizontalContentAlignment="Left"
-                              Height="52"
-                              Margin="0,0,0,8"
-                              Appearance="Secondary"
-                              Background="Transparent"
-                              BorderThickness="0"
-                              CornerRadius="12"
-                              Tag="6"
-                              Style="{StaticResource AnimatedNavButton}"
-                              Click="NavButton_Click">
-                        <ui:Button.RenderTransform>
-                            <ScaleTransform ScaleX="1" ScaleY="1"/>
-                        </ui:Button.RenderTransform>
-                        <StackPanel Orientation="Horizontal">
-                            <ui:SymbolIcon Symbol="PaintBrush24" Margin="3,0,14,0" FontSize="20" Foreground="#FF9CA3AF"/>
-                            <TextBlock x:Name="CustomizationText" Text="Кастомизация" VerticalAlignment="Center" 
                                       FontSize="14" FontWeight="Medium" Foreground="#FFE5E7EB"/>
                         </StackPanel>
                     </ui:Button>
@@ -533,13 +532,15 @@
                Placement="Bottom"
                PlacementTarget="{x:Reference CloseButtonAnchor}"
                HorizontalOffset="-150"
-               VerticalOffset="8"
-               AllowsTransparency="True">
+               VerticalOffset="13"
+               AllowsTransparency="False"
+               PopupAnimation="Fade">
             <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                     BorderThickness="1"
                     CornerRadius="8"
-                    Padding="4">
+                    Padding="4"
+                    Opacity="1">
                 <Border.Effect>
                     <DropShadowEffect Color="Black" Opacity="0.3" ShadowDepth="0" BlurRadius="12"/>
                 </Border.Effect>

@@ -43,6 +43,7 @@ public partial class CustomizationViewModel : ObservableObject
     public ObservableCollection<Models.SkinInfo> FilteredSkins { get; } = new();
     public ObservableCollection<ChallengeInfo> Challenges { get; } = new();
     public ObservableCollection<ChallengeInfo> FilteredChallenges { get; } = new();
+    public ObservableCollection<ChallengeInfo> SelectedChallenges { get; } = new();
     
     private readonly List<Models.SkinInfo> _allSkinsBuffer = new();
     private readonly List<Models.SkinInfo> _filteredSkinsBuffer = new();
@@ -61,6 +62,8 @@ public partial class CustomizationViewModel : ObservableObject
     
     [ObservableProperty]
     private ChallengeInfo? selectedChallenge3;
+    
+    public bool HasSelectedChallenges => SelectedChallenge1 != null || SelectedChallenge2 != null || SelectedChallenge3 != null;
 
     public CustomizationViewModel(ILogger logger, CustomizationService customizationService, DataDragonService dataDragonService, IRiotClientService riotClientService)
     {
@@ -85,6 +88,13 @@ public partial class CustomizationViewModel : ObservableObject
             else if (e.PropertyName == nameof(SelectedChampionForBackground))
             {
                 UpdateAvailableSkins();
+            }
+            else if (e.PropertyName == nameof(SelectedChallenge1) || 
+                     e.PropertyName == nameof(SelectedChallenge2) || 
+                     e.PropertyName == nameof(SelectedChallenge3))
+            {
+                UpdateSelectedChallenges();
+                OnPropertyChanged(nameof(HasSelectedChallenges));
             }
         };
         
@@ -407,6 +417,53 @@ public partial class CustomizationViewModel : ObservableObject
         {
             IsLoading = false;
         }
+    }
+    
+    public void SelectChallenge(ChallengeInfo challenge)
+    {
+        if (SelectedChallenge1 == null)
+        {
+            SelectedChallenge1 = challenge;
+        }
+        else if (SelectedChallenge2 == null)
+        {
+            SelectedChallenge2 = challenge;
+        }
+        else if (SelectedChallenge3 == null)
+        {
+            SelectedChallenge3 = challenge;
+        }
+        else
+        {
+            SelectedChallenge1 = challenge;
+        }
+    }
+    
+    public void RemoveChallenge(ChallengeInfo challenge)
+    {
+        if (SelectedChallenge1 == challenge)
+        {
+            SelectedChallenge1 = SelectedChallenge2;
+            SelectedChallenge2 = SelectedChallenge3;
+            SelectedChallenge3 = null;
+        }
+        else if (SelectedChallenge2 == challenge)
+        {
+            SelectedChallenge2 = SelectedChallenge3;
+            SelectedChallenge3 = null;
+        }
+        else if (SelectedChallenge3 == challenge)
+        {
+            SelectedChallenge3 = null;
+        }
+    }
+    
+    private void UpdateSelectedChallenges()
+    {
+        SelectedChallenges.Clear();
+        if (SelectedChallenge1 != null) SelectedChallenges.Add(SelectedChallenge1);
+        if (SelectedChallenge2 != null) SelectedChallenges.Add(SelectedChallenge2);
+        if (SelectedChallenge3 != null) SelectedChallenges.Add(SelectedChallenge3);
     }
 
     [RelayCommand]

@@ -572,7 +572,7 @@ public partial class MainViewModel : ObservableObject
 		IsEditMode = false;
 		EditingAccount = null;
 		ClearForm();
-		SelectedTabIndex = 6;
+		SelectedTabIndex = 7;
 	}
 
 	[RelayCommand]
@@ -584,7 +584,7 @@ public partial class MainViewModel : ObservableObject
 		NewUsername = SelectedAccount.Username;
 		NewNote = SelectedAccount.Note;
 		NewPassword = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
-		SelectedTabIndex = 6;
+		SelectedTabIndex = 7;
 	}
 
 	[RelayCommand]

@@ -198,7 +198,8 @@ public partial class App : Application
         var settingsService = new SettingsService();
         var riotClientService = new RiotClientService(logger);
         var dataDragonService = new DataDragonService(logger);
-        var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService, settingsService);
+        var bindingService = new BindingService(logger, riotClientService, settingsService);
+        var autoAcceptService = new AutoAcceptService(logger, riotClientService, dataDragonService, settingsService, bindingService);
         var runeDataService = new RuneDataService();
         var runePagesStorage = new RunePagesStorage(logger);
         var updateService = new UpdateService(logger, settingsService);
@@ -208,6 +209,7 @@ public partial class App : Application
         _services[typeof(ISettingsService)] = settingsService;
         _services[typeof(IRiotClientService)] = riotClientService;
         _services[typeof(DataDragonService)] = dataDragonService;
+        _services[typeof(BindingService)] = bindingService;
         _services[typeof(AutoAcceptService)] = autoAcceptService;
         _services[typeof(RuneDataService)] = runeDataService;
         _services[typeof(IRunePagesStorage)] = runePagesStorage;

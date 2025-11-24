@@ -591,4 +591,20 @@ public class DataDragonService
         if (profileIconId <= 0) return string.Empty;
         return $"https://ddragon.leagueoflegends.com/cdn/{_latestVersion}/img/profileicon/{profileIconId}.png";
     }
+
+    public int GetChampionIdByName(string displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            return -1;
+
+        if (_cachedChampions == null)
+            return -1;
+
+        if (_cachedChampions.TryGetValue(displayName, out var idStr) && int.TryParse(idStr, out var id))
+        {
+            return id;
+        }
+
+        return -1;
+    }
 }

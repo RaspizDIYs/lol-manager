@@ -23,6 +23,7 @@ public class AutoAcceptService
     private readonly IRiotClientService _riotClientService;
     private readonly DataDragonService _dataDragonService;
     private readonly ISettingsService _settingsService;
+    private BindingService? _bindingService;
     private bool _isAutoAcceptEnabled = false;
     private CancellationTokenSource? _wsCts;
     private CancellationTokenSource? _pollCts;
@@ -53,12 +54,13 @@ public class AutoAcceptService
     
     public event EventHandler<string>? MatchAccepted;
 
-    public AutoAcceptService(ILogger logger, IRiotClientService riotClientService, DataDragonService dataDragonService, ISettingsService settingsService)
+    public AutoAcceptService(ILogger logger, IRiotClientService riotClientService, DataDragonService dataDragonService, ISettingsService settingsService, BindingService? bindingService = null)
     {
         _logger = logger;
         _riotClientService = riotClientService;
         _dataDragonService = dataDragonService;
         _settingsService = settingsService;
+        _bindingService = bindingService;
         
         // Загружаем настройки автоматизации при старте
         try
@@ -433,6 +435,39 @@ public class AutoAcceptService
                         }
                     }, CancellationToken.None);
                 }
+                
+                // Обработка gameFlow для восстановления биндингов после игры
+                if (message.Contains("gameflow") && _bindingService != null)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(message);
+                            var root = doc.RootElement;
+                            
+                            if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() >= 3)
+                            {
+                                var eventData = root[2];
+                                if (eventData.TryGetProperty("data", out var data) && 
+                                    data.ValueKind == JsonValueKind.String)
+                                {
+                                    var status = data.GetString();
+                                    if (status == "WaitingForStats" || status == "TerminatedInError")
+                                    {
+                                        await Task.Delay(5000);
+                                        await _bindingService.RestoreBindingsAsync();
+                                        _logger.Info("[AutoAccept] Биндинги восстановлены после окончания игры");
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.Error($"❌ Ошибка восстановления биндингов: {ex.Message}");
+                        }
+                    }, CancellationToken.None);
+                }
             }
         }
         
@@ -782,6 +817,55 @@ public class AutoAcceptService
         catch (Exception ex)
         {
             _logger.Error($"[AutoAccept] Failed to apply runes: {ex.Message}");
+        }
+
+        // 6. Применяем биндинги для выбранного чемпиона
+        if (_bindingService != null && !string.IsNullOrWhiteSpace(selectedPick))
+        {
+            try
+            {
+                var championId = await GetChampionIdByNameAsync(selectedPick);
+                if (championId > 0)
+                {
+                    var applied = await _bindingService.ApplyChampionBindingsAsync(championId);
+                    if (applied)
+                    {
+                        _logger.Info($"[AutoAccept] Применены биндинги для {selectedPick} (ID: {championId})");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[AutoAccept] Ошибка применения биндингов: {ex.Message}");
+            }
+        }
+
+        // Проверяем заблокированного чемпиона для применения биндингов
+        if (_bindingService != null && data.TryGetProperty("myTeam", out var myTeam) && myTeam.ValueKind == JsonValueKind.Array)
+        {
+            try
+            {
+                foreach (var player in myTeam.EnumerateArray())
+                {
+                    if (player.TryGetProperty("cellId", out var cellId) && 
+                        cellId.GetInt32() == myCell &&
+                        player.TryGetProperty("championId", out var champId) &&
+                        champId.GetInt32() > 0)
+                    {
+                        var lockedChampionId = champId.GetInt32();
+                        var applied = await _bindingService.ApplyChampionBindingsAsync(lockedChampionId);
+                        if (applied)
+                        {
+                            _logger.Info($"[AutoAccept] Применены биндинги для заблокированного чемпиона (ID: {lockedChampionId})");
+                        }
+                        break;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"[AutoAccept] Ошибка применения биндингов для заблокированного чемпиона: {ex.Message}");
+            }
         }
 
         var summonerName = await _riotClientService.GetCurrentSummonerNameAsync();

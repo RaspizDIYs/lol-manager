@@ -63,6 +63,22 @@ public partial class CustomizationPage : UserControl
         }
     }
 
+    private void Challenge_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is Models.ChallengeInfo challenge && ViewModel != null)
+        {
+            ViewModel.SelectChallenge(challenge);
+        }
+    }
+    
+    private void SelectedChallenge_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement element && element.DataContext is Models.ChallengeInfo challenge && ViewModel != null)
+        {
+            ViewModel.RemoveChallenge(challenge);
+        }
+    }
+
     private void Image_ImageFailed(object sender, System.Windows.ExceptionRoutedEventArgs e)
     {
         if (sender is System.Windows.Controls.Image image)
