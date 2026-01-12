@@ -510,8 +510,17 @@ public class CustomizationService
             return string.Empty;
         }
 
-        var normalized = status.Replace("\r\n", "\n").Replace('\r', '\n');
-        return normalized.Replace("\n", "\u2028");
+        var s = status;
+
+        // реальные переносы
+        s = s.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+
+        // буквальные escape-последовательности (когда в клиент попадает \"\\n\")
+        s = s.Replace("\\r\\n", " ").Replace("\\n", " ").Replace("\\r", " ");
+
+        // схлопнуть пробелы
+        s = System.Text.RegularExpressions.Regex.Replace(s, "\\s{2,}", " ");
+        return s.Trim();
     }
 
     private HttpClient CreateHttpClient(int port, string password)

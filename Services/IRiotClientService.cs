@@ -14,6 +14,7 @@ public interface IRiotClientService
     Task StartLeagueAsync();
     Task RestartLeagueAsync(bool includeRiotClient);
     Task LogoutAsync();
+    Task LogoutAsync(bool includeLcu, System.Threading.CancellationToken cancellationToken);
     Task StartRiotClientAsync();
     Task RestartRiotClientAsync();
     bool IsRiotClientRunning();

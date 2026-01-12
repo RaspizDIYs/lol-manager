@@ -42,6 +42,9 @@ public class AutoAcceptService
     private DateTime _lastEnsureCheck = DateTime.MinValue;
     private Dictionary<string, int>? _championNameToIdCache;
     private Dictionary<string, int>? _spellNameToIdCache;
+	private CancellationTokenSource? _champSelectCts;
+	private long _champSelectVersion;
+	private long _lastChampSelectGameId = -1;
     
     private AutoAcceptMethod CurrentMethod => AutoAcceptMethodExtensions.Parse(_automationSettings?.AutoAcceptMethod);
     private bool IsMethodWebSocket => CurrentMethod == AutoAcceptMethod.WebSocket || CurrentMethod == AutoAcceptMethod.Auto;
@@ -111,6 +114,7 @@ public class AutoAcceptService
         try { _wsCts?.Cancel(); } catch { }
         try { _pollCts?.Cancel(); } catch { }
         try { _uiaCts?.Cancel(); } catch { }
+		try { _champSelectCts?.Cancel(); } catch { }
     }
     
     private void UpdateWebSocketState()
@@ -421,17 +425,26 @@ public class AutoAcceptService
                 // Обработка champ-select события
                 if (message.Contains("champ-select"))
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        try
-                        {
-                            await HandleChampSelectAsync(message, port, password);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.Error($"❌ Ошибка автоматизации чемпион селекта: {ex.Message}");
-                        }
-                    }, CancellationToken.None);
+					var version = Interlocked.Increment(ref _champSelectVersion);
+					var cts = new CancellationTokenSource();
+					var prev = Interlocked.Exchange(ref _champSelectCts, cts);
+					try { prev?.Cancel(); } catch { }
+					try { prev?.Dispose(); } catch { }
+
+					_ = Task.Run(async () =>
+					{
+						try
+						{
+							await HandleChampSelectAsync(message, port, password, version, cts.Token);
+						}
+						catch (OperationCanceledException)
+						{
+						}
+						catch (Exception ex)
+						{
+							_logger.Error($"❌ Ошибка автоматизации чемпион селекта: {ex.Message}");
+						}
+					}, CancellationToken.None);
                 }
             }
         }
@@ -561,12 +574,15 @@ public class AutoAcceptService
         return null;
     }
 
-    private async Task HandleChampSelectAsync(string message, int port, string password)
+    private async Task HandleChampSelectAsync(string message, int port, string password, long version, CancellationToken cancellationToken)
     {
         if (_automationSettings == null || !_automationSettings.IsEnabled)
         {
             return;
         }
+
+		cancellationToken.ThrowIfCancellationRequested();
+		if (version != Volatile.Read(ref _champSelectVersion)) return;
         
         var pick1 = _automationSettings.ChampionToPick1 ?? string.Empty;
         var pick2 = _automationSettings.ChampionToPick2 ?? string.Empty;
@@ -607,6 +623,8 @@ public class AutoAcceptService
         if (eventData.TryGetProperty("eventType", out var eventType) && eventType.GetString() == "Delete")
         {
             ResetChampSelectState();
+			_lastEnsureCheck = DateTime.MinValue;
+			Interlocked.Exchange(ref _lastChampSelectGameId, -1);
             return;
         }
         
@@ -615,12 +633,31 @@ public class AutoAcceptService
             return;
         }
 
+		// Если сменился gameId — сбрасываем флаги (иначе можно «протащить» прошлый пик/бан в новую сессию)
+		try
+		{
+			if (data.TryGetProperty("gameId", out var gid) && gid.ValueKind == JsonValueKind.Number)
+			{
+				var gameId = gid.GetInt64();
+				var prevGameId = Interlocked.Exchange(ref _lastChampSelectGameId, gameId);
+				if (prevGameId != gameId)
+				{
+					ResetChampSelectState();
+					_lastEnsureCheck = DateTime.MinValue;
+				}
+			}
+		}
+		catch { }
+
         if (!data.TryGetProperty("localPlayerCellId", out var localCellId))
         {
             return;
         }
         
         int myCell = localCellId.GetInt32();
+
+		cancellationToken.ThrowIfCancellationRequested();
+		if (version != Volatile.Read(ref _champSelectVersion)) return;
 
         // Получаем список забаненных чемпионов
         var bannedChampionIds = new HashSet<int>();
@@ -704,14 +741,18 @@ public class AutoAcceptService
                     {
                         if (!string.IsNullOrWhiteSpace(ban) && Interlocked.CompareExchange(ref _hasBannedChampion, 1, 0) == 0)
                         {
-                            await BanChampionAsync(port, password, actionId, ban);
+							cancellationToken.ThrowIfCancellationRequested();
+							if (version != Volatile.Read(ref _champSelectVersion)) return;
+                            await BanChampionAsync(port, password, actionId, ban, cancellationToken);
                         }
                     }
                     else if (type == "pick")
                     {
                         if (!string.IsNullOrWhiteSpace(selectedPick) && Interlocked.CompareExchange(ref _hasPickedChampion, 1, 0) == 0)
                         {
-                            await PickChampionAsync(port, password, actionId, selectedPick);
+							cancellationToken.ThrowIfCancellationRequested();
+							if (version != Volatile.Read(ref _champSelectVersion)) return;
+                            await PickChampionAsync(port, password, actionId, selectedPick, cancellationToken);
                         }
                     }
                 }
@@ -721,7 +762,9 @@ public class AutoAcceptService
         // Идемпотентная синхронизация выбора/бана с актуальными настройками (на случай изменения во время сессии)
         try
         {
-            await EnsureDesiredSelectionAsync(port, password, data, myCell);
+			cancellationToken.ThrowIfCancellationRequested();
+			if (version != Volatile.Read(ref _champSelectVersion)) return;
+            await EnsureDesiredSelectionAsync(port, password, data, myCell, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -734,8 +777,10 @@ public class AutoAcceptService
         {
             if (Interlocked.CompareExchange(ref _hasSetSummonerSpells, 1, 0) == 0)
             {
-                await Task.Delay(500);
-                await SetSummonerSpellsAsync(port, password);
+                await Task.Delay(500, cancellationToken);
+				cancellationToken.ThrowIfCancellationRequested();
+				if (version != Volatile.Read(ref _champSelectVersion)) return;
+                await SetSummonerSpellsAsync(port, password, cancellationToken);
             }
         }
 
@@ -788,7 +833,7 @@ public class AutoAcceptService
         _logger.Info($"[AutoAccept] Completed PreMatch actions for {summonerName}");
     }
 
-    private async Task BanChampionAsync(int port, string password, long actionId, string championName)
+    private async Task BanChampionAsync(int port, string password, long actionId, string championName, CancellationToken cancellationToken)
     {
         try
         {
@@ -810,18 +855,26 @@ public class AutoAcceptService
                 if (delayActive && delaySec > 0)
                 {
                     _logger.Info($"⏳ Задержка перед баном: {delaySec}s");
-                    await Task.Delay(TimeSpan.FromSeconds(delaySec));
+                    await Task.Delay(TimeSpan.FromSeconds(delaySec), cancellationToken);
                 }
             }
             catch { }
             
             using var client = CreateHttpClient(port, password);
+
+			var banActionOk = await IsMyChampSelectActionActiveAsync(client, actionId, expectedType: "ban", cancellationToken);
+			if (!banActionOk)
+			{
+				_logger.Info($"Ban: actionId={actionId} уже неактуален (phase changed) — пропускаю");
+				return;
+			}
+
             var content = new StringContent(
                 $"{{\"championId\":{championId},\"completed\":true}}",
                 Encoding.UTF8,
                 "application/json"
             );
-            var response = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{actionId}", content);
+            var response = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{actionId}", content, cancellationToken);
             
             if (response.IsSuccessStatusCode)
             {
@@ -838,7 +891,7 @@ public class AutoAcceptService
         }
     }
 
-    private async Task PickChampionAsync(int port, string password, long actionId, string championName)
+    private async Task PickChampionAsync(int port, string password, long actionId, string championName, CancellationToken cancellationToken)
     {
         try
         {
@@ -860,18 +913,26 @@ public class AutoAcceptService
                 if (delayActive && delaySec > 0)
                 {
                     _logger.Info($"⏳ Задержка перед пиком: {delaySec}s");
-                    await Task.Delay(TimeSpan.FromSeconds(delaySec));
+                    await Task.Delay(TimeSpan.FromSeconds(delaySec), cancellationToken);
                 }
             }
             catch { }
             
             using var client = CreateHttpClient(port, password);
+
+			var pickActionOk = await IsMyChampSelectActionActiveAsync(client, actionId, expectedType: "pick", cancellationToken);
+			if (!pickActionOk)
+			{
+				_logger.Info($"Pick: actionId={actionId} уже неактуален (phase changed) — пропускаю");
+				return;
+			}
+
             var content = new StringContent(
                 $"{{\"championId\":{championId},\"completed\":true}}",
                 Encoding.UTF8,
                 "application/json"
             );
-            var response = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{actionId}", content);
+            var response = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{actionId}", content, cancellationToken);
             
             if (response.IsSuccessStatusCode)
             {
@@ -888,7 +949,7 @@ public class AutoAcceptService
         }
     }
 
-    private async Task SetSummonerSpellsAsync(int port, string password)
+    private async Task SetSummonerSpellsAsync(int port, string password, CancellationToken cancellationToken)
     {
         if (_automationSettings == null) return;
         
@@ -907,7 +968,7 @@ public class AutoAcceptService
                         Encoding.UTF8,
                         "application/json"
                     );
-                    var response1 = await client.PatchAsync("/lol-champ-select/v1/session/my-selection", content1);
+                    var response1 = await client.PatchAsync("/lol-champ-select/v1/session/my-selection", content1, cancellationToken);
                     
                     if (response1.IsSuccessStatusCode)
                     {
@@ -942,7 +1003,7 @@ public class AutoAcceptService
                         Encoding.UTF8,
                         "application/json"
                     );
-                    var response2 = await client.PatchAsync("/lol-champ-select/v1/session/my-selection", content2);
+                    var response2 = await client.PatchAsync("/lol-champ-select/v1/session/my-selection", content2, cancellationToken);
                     
                     if (response2.IsSuccessStatusCode)
                     {
@@ -965,7 +1026,7 @@ public class AutoAcceptService
         }
     }
 
-    private async Task EnsureDesiredSelectionAsync(int port, string password, JsonElement data, int myCell)
+    private async Task EnsureDesiredSelectionAsync(int port, string password, JsonElement data, int myCell, CancellationToken cancellationToken)
     {
         if (_automationSettings == null || !_automationSettings.IsEnabled)
             return;
@@ -986,8 +1047,28 @@ public class AutoAcceptService
         var picks = new[] { pick1, pick2, pick3 }.Where(p => !string.IsNullOrWhiteSpace(p)).ToList();
         var desiredBanName = _automationSettings.ChampionToBan ?? string.Empty;
 
-        bool hasActions = data.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array;
-        if (!hasActions) return;
+        using var client = CreateHttpClient(port, password);
+
+		// Берём свежую сессию: WS-событие может быть не последним, а у нас ещё и есть задержки/параллельность
+		JsonElement session;
+		try
+		{
+			var resp = await client.GetAsync("/lol-champ-select/v1/session", cancellationToken);
+			if (!resp.IsSuccessStatusCode) return;
+			using var freshDoc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cancellationToken));
+			session = freshDoc.RootElement.Clone();
+		}
+		catch
+		{
+			return;
+		}
+
+		bool hasActions = session.TryGetProperty("actions", out var actions) && actions.ValueKind == JsonValueKind.Array;
+		if (!hasActions) return;
+
+		if (!session.TryGetProperty("localPlayerCellId", out var localCellId) || localCellId.ValueKind != JsonValueKind.Number)
+			return;
+		myCell = localCellId.GetInt32();
 
         // Получаем список забаненных чемпионов
         var bannedChampionIds = new HashSet<int>();
@@ -1002,9 +1083,9 @@ public class AutoAcceptService
             {
                 if (!action.TryGetProperty("type", out var actionType))
                     continue;
-                
+
                 var type = actionType.GetString();
-                
+
                 // Собираем все завершенные баны
                 if (type == "ban")
                 {
@@ -1024,10 +1105,14 @@ public class AutoAcceptService
                         }
                     }
                 }
-                
+
                 if (!action.TryGetProperty("actorCellId", out var actorCell) || actorCell.GetInt32() != myCell)
                     continue;
-                
+
+				// Берём только текущие активные действия, иначе легко схватить actionId «из прошлого»
+				if (!action.TryGetProperty("completed", out var completedEl) || completedEl.GetBoolean())
+					continue;
+
                 var actionId = action.GetProperty("id").GetInt64();
                 int actChampId = 0;
                 if (action.TryGetProperty("championId", out var ch))
@@ -1046,8 +1131,6 @@ public class AutoAcceptService
                 }
             }
         }
-
-        using var client = CreateHttpClient(port, password);
 
         // Выбираем первый доступный чемпион из списка пиков
         string? desiredPickName = null;
@@ -1080,8 +1163,10 @@ public class AutoAcceptService
             {
                 try
                 {
+					var ok = await IsMyChampSelectActionActiveAsync(client, myPickActionId.Value, expectedType: "pick", cancellationToken);
+					if (!ok) return;
                     var content = new StringContent($"{{\"championId\":{desiredPickId},\"completed\":true}}", Encoding.UTF8, "application/json");
-                    var resp = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{myPickActionId.Value}", content);
+                    var resp = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{myPickActionId.Value}", content, cancellationToken);
                     _logger.Info(resp.IsSuccessStatusCode
                         ? $"Ensure: обновил PICK -> {desiredPickName} (ID:{desiredPickId})"
                         : $"Ensure: не удалось обновить PICK -> {resp.StatusCode}");
@@ -1100,8 +1185,10 @@ public class AutoAcceptService
             {
                 try
                 {
+					var ok = await IsMyChampSelectActionActiveAsync(client, myBanActionId.Value, expectedType: "ban", cancellationToken);
+					if (!ok) return;
                     var content = new StringContent($"{{\"championId\":{desiredBanId},\"completed\":true}}", Encoding.UTF8, "application/json");
-                    var resp = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{myBanActionId.Value}", content);
+                    var resp = await client.PatchAsync($"/lol-champ-select/v1/session/actions/{myBanActionId.Value}", content, cancellationToken);
                     _logger.Info(resp.IsSuccessStatusCode
                         ? $"Ensure: обновил BAN -> {desiredBanName} (ID:{desiredBanId})"
                         : $"Ensure: не удалось обновить BAN -> {resp.StatusCode}");
@@ -1113,6 +1200,52 @@ public class AutoAcceptService
             }
         }
     }
+
+	private static async Task<bool> IsMyChampSelectActionActiveAsync(HttpClient client, long actionId, string expectedType, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var resp = await client.GetAsync("/lol-champ-select/v1/session", cancellationToken);
+			if (!resp.IsSuccessStatusCode) return false;
+			using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cancellationToken));
+			var root = doc.RootElement;
+
+			if (!root.TryGetProperty("localPlayerCellId", out var localCellId) || localCellId.ValueKind != JsonValueKind.Number)
+				return false;
+			var myCell = localCellId.GetInt32();
+
+			if (!root.TryGetProperty("actions", out var actions) || actions.ValueKind != JsonValueKind.Array)
+				return false;
+
+			foreach (var actionGroup in actions.EnumerateArray())
+			{
+				foreach (var action in actionGroup.EnumerateArray())
+				{
+					if (!action.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.Number)
+						continue;
+					if (idEl.GetInt64() != actionId)
+						continue;
+
+					if (!action.TryGetProperty("type", out var typeEl))
+						return false;
+					if (!string.Equals(typeEl.GetString(), expectedType, StringComparison.OrdinalIgnoreCase))
+						return false;
+
+					if (!action.TryGetProperty("actorCellId", out var actorCell) || actorCell.ValueKind != JsonValueKind.Number || actorCell.GetInt32() != myCell)
+						return false;
+
+					if (!action.TryGetProperty("completed", out var completedEl) || completedEl.ValueKind != JsonValueKind.False)
+						return false;
+
+					return true;
+				}
+			}
+		}
+		catch
+		{
+		}
+		return false;
+	}
 
     private async Task<int> GetChampionIdByNameAsync(string displayName)
     {

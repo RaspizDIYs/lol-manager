@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LolManager.Models;
@@ -244,6 +245,7 @@ public partial class MainViewModel : ObservableObject
 	private bool isLoggingIn = false;
 
     private System.Threading.CancellationTokenSource? _loginCts;
+	private readonly SemaphoreSlim _loginGate = new(1, 1);
 
 	[ObservableProperty]
 	private string loginStatus = string.Empty;
@@ -1026,24 +1028,31 @@ public partial class MainViewModel : ObservableObject
     private async Task LoginSelected()
     {
         if (SelectedAccount is null) return;
-        
-		EnsureConnectivityLoop();
-        IsLoggingIn = true;
-        LoginStatus = "Подготовка к входу...";
-        _loginCts?.Cancel();
-        _loginCts = new System.Threading.CancellationTokenSource();
-        
+
+		var newCts = new System.Threading.CancellationTokenSource();
+		var prev = Interlocked.Exchange(ref _loginCts, newCts);
+		try { prev?.Cancel(); } catch { }
+		try { prev?.Dispose(); } catch { }
+
+		await _loginGate.WaitAsync();
+
         try
         {
+			if (!ReferenceEquals(_loginCts, newCts)) return;
+
+			EnsureConnectivityLoop();
+			IsLoggingIn = true;
+			LoginStatus = "Подготовка к входу...";
+
             var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
             _logger.Info($"Login requested for {SelectedAccount.Username}");
             
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
-            await _riotClientService.LoginAsync(SelectedAccount.Username, password, _loginCts.Token);
+            await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
             
             LoginStatus = "Получение информации об аккаунте...";
             
-            await Task.Delay(3000, _loginCts.Token);
+            await Task.Delay(3000, newCts.Token);
             
             var accountInfo = await _riotClientService.GetAccountInfoAsync();
             if (accountInfo.HasValue && SelectedAccount != null)
@@ -1065,7 +1074,7 @@ public partial class MainViewModel : ObservableObject
                     {
                         _logger.Warning($"Username mismatch! Expected: {expectedUsername}, Got: {loggedInUsername}. Skipping data update to prevent wrong account assignment.");
                         LoginStatus = $"Предупреждение: вошли в другой аккаунт ({loggedInUsername})";
-                        await Task.Delay(3000, _loginCts.Token);
+                        await Task.Delay(3000, newCts.Token);
                         LoginStatus = string.Empty;
                         return;
                     }
@@ -1094,7 +1103,7 @@ public partial class MainViewModel : ObservableObject
             ConnectionIssueText = string.Empty;
             _lastConnectionIssueToast = string.Empty;
             
-            await Task.Delay(1500, _loginCts.Token);
+            await Task.Delay(1500, newCts.Token);
             LoginStatus = string.Empty;
         }
         catch (OperationCanceledException)
@@ -1115,8 +1124,13 @@ public partial class MainViewModel : ObservableObject
         {
             IsLoggingIn = false;
 			StopConnectivityLoop();
-            _loginCts?.Dispose();
-            _loginCts = null;
+			_loginGate.Release();
+
+			if (ReferenceEquals(_loginCts, newCts))
+			{
+				try { newCts.Dispose(); } catch { }
+				_loginCts = null;
+			}
         }
     }
 
@@ -1333,23 +1347,61 @@ public partial class MainViewModel : ObservableObject
     private async Task ReLogin()
     {
         if (SelectedAccount is null) return;
-        try
-        {
-            var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
-            _logger.Info($"ReLogin requested for {SelectedAccount.Username}");
-            await _riotClientService.KillLeagueAsync(includeRiotClient: true);
-            await _riotClientService.StartLeagueAsync();
-            _ = Task.Run(async () =>
-            {
-                try { await _riotClientService.LoginAsync(SelectedAccount.Username, password); }
-                catch (Exception ex) { _logger.Error($"ReLogin LCU path failed: {ex.Message}"); }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.Error($"ReLogin error: {ex}");
-            MessageWindow.Show($"Ошибка перезахода: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка перезахода", MessageWindow.MessageType.Error);
-        }
+		var newCts = new System.Threading.CancellationTokenSource();
+		var prev = Interlocked.Exchange(ref _loginCts, newCts);
+		try { prev?.Cancel(); } catch { }
+		try { prev?.Dispose(); } catch { }
+
+		await _loginGate.WaitAsync();
+
+		try
+		{
+			if (!ReferenceEquals(_loginCts, newCts)) return;
+
+			EnsureConnectivityLoop();
+			IsLoggingIn = true;
+			LoginStatus = "Перезаход...";
+
+			var password = _accountsStorage.Unprotect(SelectedAccount.EncryptedPassword);
+			_logger.Info($"ReLogin requested for {SelectedAccount.Username}");
+
+			LoginStatus = "Перезапуск клиента...";
+			await _riotClientService.KillLeagueAsync(includeRiotClient: true);
+			await Task.Delay(500, newCts.Token);
+
+			LoginStatus = $"Вход в {SelectedAccount.Username}...";
+			await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
+
+			LoginStatus = "Готово";
+			await Task.Delay(1500, newCts.Token);
+			LoginStatus = string.Empty;
+		}
+		catch (OperationCanceledException)
+		{
+			LoginStatus = "Вход отменён";
+			await Task.Delay(1000);
+			LoginStatus = string.Empty;
+		}
+		catch (Exception ex)
+		{
+			_logger.Error($"ReLogin error: {ex}");
+			LoginStatus = $"Ошибка: {ex.Message}";
+			MessageWindow.Show($"Ошибка перезахода: {ex.Message}\nЛоги: {_logger.LogFilePath}", "Ошибка перезахода", MessageWindow.MessageType.Error);
+			await Task.Delay(3000);
+			LoginStatus = string.Empty;
+		}
+		finally
+		{
+			IsLoggingIn = false;
+			StopConnectivityLoop();
+			_loginGate.Release();
+
+			if (ReferenceEquals(_loginCts, newCts))
+			{
+				try { newCts.Dispose(); } catch { }
+				_loginCts = null;
+			}
+		}
     }
 
     [RelayCommand]
@@ -1358,7 +1410,16 @@ public partial class MainViewModel : ObservableObject
         try
         {
             _logger.Info("Logout requested");
-            await _riotClientService.LogoutAsync();
+			try { _loginCts?.Cancel(); } catch { }
+			await _loginGate.WaitAsync();
+			try
+			{
+				await _riotClientService.LogoutAsync(includeLcu: true, CancellationToken.None);
+			}
+			finally
+			{
+				_loginGate.Release();
+			}
         }
         catch (Exception ex)
         {

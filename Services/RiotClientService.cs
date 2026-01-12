@@ -112,37 +112,20 @@ public partial class RiotClientService : IRiotClientService
         // 1b) Убедиться, что RC lockfile готов
         await WaitForRcLockfileAsync(TimeSpan.FromSeconds(6), externalToken);
         
-        // 2) Всегда делаем logout и закрываем League перед входом (кроме холодного старта)
+        // 2) Всегда делаем logout/cleanup перед входом (кроме холодного старта)
         _logger.LoginFlow("Checking current state", "Before login attempt");
-        bool wasAlreadyLoggedIn = await IsRsoAuthorizedAsync();
+        bool wasAlreadyLoggedIn = await IsRsoAuthorizedAsync(externalToken);
         bool isLeagueRunning = IsLeagueProcessRunning();
-        
         _logger.Info($"State check: isAuthorized={wasAlreadyLoggedIn}, isLeagueRunning={isLeagueRunning}");
-        
-        // ВСЕГДА делаем logout/cleanup, если RC был запущен (не холодный старт)
+
         if (!coldStart)
         {
             _logger.LoginFlow("Account switch mode", "Cleaning up before login");
-            try 
-            { 
-                // Всегда закрываем League если он запущен
-                _logger.LoginFlow("Closing League client", "Ensuring clean state");
-                await KillLeagueAsync(includeRiotClient: false);
-                await Task.Delay(1500, externalToken);
-                
-                // Всегда делаем logout из RC
-                _logger.LoginFlow("Logging out from Riot Client", "Ensuring clean state");
-                await LogoutAsync(includeLcu: false);
-                await Task.Delay(2000, externalToken);
-                
-                _logger.LoginFlow("Activating Riot Client window", "Ready for new login");
-                await EnsureRiotClientWindowVisible();
-                await Task.Delay(500, externalToken);
-            } 
-            catch (Exception ex) 
-            { 
-                _logger.Warning($"Account switch failed: {ex.Message}"); 
-            }
+            await EnsureLoggedOutStateAsync(externalToken);
+
+            _logger.LoginFlow("Activating Riot Client window", "Ready for new login");
+            await EnsureRiotClientWindowVisible();
+            await Task.Delay(500, externalToken);
         }
         else
         {
@@ -184,7 +167,7 @@ public partial class RiotClientService : IRiotClientService
             for (int i = 0; i < 20; i++)
             {
                 externalToken.ThrowIfCancellationRequested();
-                isAuthorized = await IsRsoAuthorizedAsync();
+                isAuthorized = await IsRsoAuthorizedAsync(externalToken);
                 if (isAuthorized)
                 {
                     _logger.LoginFlow("RSO authorization confirmed", "Login successful");
@@ -1044,10 +1027,15 @@ public partial class RiotClientService : IRiotClientService
 
     public async Task LogoutAsync()
     {
-        await LogoutAsync(includeLcu: true);
+        await LogoutAsync(includeLcu: true, CancellationToken.None);
     }
 
-    private async Task LogoutAsync(bool includeLcu)
+    public async Task LogoutAsync(bool includeLcu, CancellationToken cancellationToken)
+    {
+        await LogoutCoreAsync(includeLcu, cancellationToken);
+    }
+
+    private async Task LogoutCoreAsync(bool includeLcu, CancellationToken cancellationToken)
     {
         try
         {
@@ -1062,7 +1050,7 @@ public partial class RiotClientService : IRiotClientService
                     using var lcu = CreateHttpClient(lcuLock.Port, lcuLock.Password);
                     try
                     {
-                        var del = await lcu.DeleteAsync("/lol-login/v1/session");
+                        var del = await lcu.DeleteAsync("/lol-login/v1/session", cancellationToken);
                         await LogResponse("LCU DELETE /lol-login/v1/session [logout]", del);
                     }
                     catch (Exception ex)
@@ -1071,7 +1059,7 @@ public partial class RiotClientService : IRiotClientService
                     }
                     try
                     {
-                        var delRso = await lcu.DeleteAsync("/rso-auth/v1/session");
+                        var delRso = await lcu.DeleteAsync("/rso-auth/v1/session", cancellationToken);
                         await LogResponse("LCU DELETE /rso-auth/v1/session [logout]", delRso);
                     }
                     catch { }
@@ -1095,7 +1083,7 @@ public partial class RiotClientService : IRiotClientService
                 try
                 {
                     _logger.Info("LogoutAsync: sending DELETE /rso-auth/v1/authorization");
-                    var resp1 = await rcClient.DeleteAsync("/rso-auth/v1/authorization");
+                    var resp1 = await rcClient.DeleteAsync("/rso-auth/v1/authorization", cancellationToken);
                     await LogResponse("RC DELETE /rso-auth/v1/authorization [logout]", resp1);
                 }
                 catch (Exception ex) 
@@ -1107,19 +1095,31 @@ public partial class RiotClientService : IRiotClientService
                 try
                 {
                     _logger.Info("LogoutAsync: sending DELETE /rso-auth/v2/authorizations");
-                    var resp2 = await rcClient.DeleteAsync("/rso-auth/v2/authorizations");
+                    var resp2 = await rcClient.DeleteAsync("/rso-auth/v2/authorizations", cancellationToken);
                     await LogResponse("RC DELETE /rso-auth/v2/authorizations [logout]", resp2);
                 }
                 catch (Exception ex) 
                 { 
                     _logger.Warning($"RC logout v2 failed: {ex.Message}");
                 }
+
+                // В некоторых билдах используется /rso-auth/v2/authorization (singular) — это же проверяем в IsRsoAuthorizedAsync
+                try
+                {
+                    _logger.Info("LogoutAsync: sending DELETE /rso-auth/v2/authorization");
+                    var resp2b = await rcClient.DeleteAsync("/rso-auth/v2/authorization", cancellationToken);
+                    await LogResponse("RC DELETE /rso-auth/v2/authorization [logout]", resp2b);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning($"RC logout v2(singular) failed: {ex.Message}");
+                }
                 
                 // На всякий случай закрыть сам продукт LoL, если RC держит его запущенным
                 try
                 {
                     _logger.Info("LogoutAsync: sending DELETE /product-launcher/v1/products/league_of_legends");
-                    var resp3 = await rcClient.DeleteAsync("/product-launcher/v1/products/league_of_legends");
+                    var resp3 = await rcClient.DeleteAsync("/product-launcher/v1/products/league_of_legends", cancellationToken);
                     await LogResponse("RC DELETE /product-launcher/v1/products/league_of_legends [logout]", resp3);
                 }
                 catch (Exception ex) 
@@ -1138,6 +1138,48 @@ public partial class RiotClientService : IRiotClientService
         {
             _logger.Error($"LogoutAsync error: {ex}");
         }
+    }
+
+    private async Task<bool> WaitUntilRsoUnauthorizedAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await IsRsoAuthorizedAsync(cancellationToken)) return true;
+            await Task.Delay(250, cancellationToken);
+        }
+        return !await IsRsoAuthorizedAsync(cancellationToken);
+    }
+
+    private async Task EnsureLoggedOutStateAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // 1) Пытаемся корректно выйти (LCU+RC), пока League ещё может быть жив
+        _logger.LoginFlow("Logging out (LCU+RC)", "Ensuring clean state");
+        await LogoutAsync(includeLcu: true, cancellationToken);
+
+        // 2) Закрываем League (если он поднят) — чтобы не держал старую сессию/lockfile
+        _logger.LoginFlow("Closing League client", "Ensuring clean state");
+        await KillLeagueAsync(includeRiotClient: false);
+        await Task.Delay(800, cancellationToken);
+
+        // 3) Ждём фактический сброс авторизации в RC; иначе форсим рестарт RC
+        var loggedOut = await WaitUntilRsoUnauthorizedAsync(TimeSpan.FromSeconds(8), cancellationToken);
+        if (!loggedOut)
+        {
+            _logger.Warning("RC still authorized after LogoutAsync. Forcing Riot Client restart to ensure clean state.");
+            await KillRiotClientOnlyAsync();
+            await StartRiotClientAsync();
+            await WaitForBothRiotProcessesAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            await WaitForRcLockfileAsync(TimeSpan.FromSeconds(10), cancellationToken);
+
+            // После рестарта всё равно проверим состояние
+            await WaitUntilRsoUnauthorizedAsync(TimeSpan.FromSeconds(8), cancellationToken);
+        }
+
+        await Task.Delay(250, cancellationToken);
     }
 
     public async Task<string?> FetchLcuOpenApiAsync(string outputJsonPath)
@@ -1677,7 +1719,7 @@ public partial class RiotClientService : IRiotClientService
         catch { }
     }
 
-    private async Task<bool> IsRsoAuthorizedAsync()
+    private async Task<bool> IsRsoAuthorizedAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1687,7 +1729,7 @@ public partial class RiotClientService : IRiotClientService
             // Проверяем v1
             try
             {
-                var resp1 = await rcClient.GetAsync("/rso-auth/v1/authorization");
+                var resp1 = await rcClient.GetAsync("/rso-auth/v1/authorization", cancellationToken);
                 _logger.Info($"IsRsoAuthorized v1: status={resp1.StatusCode}");
                 if ((int)resp1.StatusCode == 200)
                 {
@@ -1705,7 +1747,7 @@ public partial class RiotClientService : IRiotClientService
             // Проверяем v2
             try
             {
-                var resp2 = await rcClient.GetAsync("/rso-auth/v2/authorization");
+                var resp2 = await rcClient.GetAsync("/rso-auth/v2/authorization", cancellationToken);
                 _logger.Info($"IsRsoAuthorized v2: status={resp2.StatusCode}");
                 if ((int)resp2.StatusCode == 200)
                 {
