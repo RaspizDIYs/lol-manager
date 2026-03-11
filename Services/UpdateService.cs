@@ -249,6 +249,33 @@ public class UpdateService : IUpdateService
     {
         try
         {
+            // Определяем версию из redirect URL (не тратит API rate limit)
+            using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+            http.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+
+            var resp = await http.GetAsync(RustLMReleasesFallbackUrl);
+            var location = resp.Headers.Location?.ToString() ?? "";
+            // location = https://github.com/RaspizDIYs/rustlm/releases/tag/v0.1.2
+            var tag = location.Split('/').LastOrDefault() ?? "";
+            if (string.IsNullOrEmpty(tag) || !tag.StartsWith("v"))
+            {
+                _logger.Warning($"Could not extract tag from redirect: {location}");
+                return null;
+            }
+
+            var version = tag.Substring(1); // "0.1.2"
+            var downloadUrl = $"https://github.com/RaspizDIYs/rustlm/releases/download/{tag}/RustLM_{version}_x64-setup.exe";
+            _logger.Info($"Resolved RustLM setup URL via redirect: {downloadUrl}");
+            return downloadUrl;
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to resolve RustLM setup URL: {ex.Message}");
+        }
+
+        // Fallback: попытка через API
+        try
+        {
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
             http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
@@ -265,13 +292,12 @@ public class UpdateService : IUpdateService
                     return asset.GetProperty("browser_download_url").GetString();
                 }
             }
-
-            _logger.Warning("No x64-setup.exe asset found in latest RustLM release");
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to query RustLM releases API: {ex.Message}");
+            _logger.Error($"API fallback also failed: {ex.Message}");
         }
+
         return null;
     }
 

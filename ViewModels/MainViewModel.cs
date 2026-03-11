@@ -467,9 +467,8 @@ public partial class MainViewModel : ObservableObject
 			};
 		}
 		
-		// Автоматическая проверка обновлений
-		_ = Task.Run(async () => await CheckForUpdatesAsync());
-		
+		// Проверка обновлений запускается в App.xaml.cs (CheckForUpdatesOnStartupAsync)
+
 		// Автоматическая загрузка данных аккаунтов при запуске (если LCU подключен)
 		_ = Task.Run(async () =>
 		{
