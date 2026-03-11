@@ -109,14 +109,29 @@ public partial class App : Application
         
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, eventName);
         
+        // Проверка миграции на RustLM (до инициализации сервисов)
+        try
+        {
+            var shouldExit = MigrationService.TryMigrateAsync(null).GetAwaiter().GetResult();
+            if (shouldExit)
+            {
+                Shutdown();
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"[APP] Migration check error: {ex.Message}");
+        }
+
         // Регистрация сервисов
         RegisterServices();
-        
+
         _logger = GetService<ILogger>();
         _logger?.Info("[APP] Инициализация трея на уровне приложения");
-        
+
         InitializeTrayIcon();
-        
+
         base.OnStartup(e);
 
         // Явное создание главного окна
