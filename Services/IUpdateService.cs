@@ -4,6 +4,7 @@ public interface IUpdateService
 {
     string CurrentVersion { get; }
     string? LatestAvailableVersion { get; }
+    bool IsMigrationToRustLM { get; }
     Task<bool> CheckForUpdatesAsync(bool forceCheck = false);
     Task<bool> UpdateAsync();
     Task<string> GetChangelogAsync();

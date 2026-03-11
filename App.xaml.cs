@@ -109,21 +109,6 @@ public partial class App : Application
         
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, eventName);
         
-        // Проверка миграции на RustLM (до инициализации сервисов)
-        try
-        {
-            var shouldExit = MigrationService.TryMigrateAsync(null).GetAwaiter().GetResult();
-            if (shouldExit)
-            {
-                Shutdown();
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            Trace.WriteLine($"[APP] Migration check error: {ex.Message}");
-        }
-
         // Регистрация сервисов
         RegisterServices();
 
@@ -323,47 +308,46 @@ public partial class App : Application
         {
             // Даём время на загрузку MainWindow
             await Task.Delay(3000);
-            
-            _logger?.Info("[APP] 🔄 Автоматическая проверка обновлений при запуске...");
-            
+
+            _logger?.Info("[APP] Автоматическая проверка обновлений при запуске...");
+
             var updateService = GetService<IUpdateService>();
 
-            // Соблюдаем интервал проверки, если автообновления включены
-            var settings = GetService<ISettingsService>().LoadUpdateSettings();
-            if (!settings.AutoUpdateEnabled)
-            {
-                _logger?.Info("[APP] Автообновления выключены — пропускаем автоматическую проверку");
-                return;
-            }
-            var nextAllowed = settings.LastCheckTime.AddHours(Math.Max(1, settings.CheckIntervalHours));
-            if (DateTime.UtcNow < nextAllowed)
-            {
-                _logger?.Info($"[APP] Рано проверять (до {nextAllowed:u}), пропускаем");
-                return;
-            }
-            
+            // Миграция на RustLM проверяется ВСЕГДА, независимо от настроек обновлений
             var hasUpdates = await updateService.CheckForUpdatesAsync(forceCheck: false);
-            
+
             if (hasUpdates)
             {
-                _logger?.Info("[APP] ✅ Найдены обновления!");
-                
-                // Показываем уведомление внутри главного окна
-                Dispatcher.Invoke(() =>
+                _logger?.Info("[APP] Найдены обновления!");
+
+                // Для миграции показываем полноценное окно UpdateWindow вместо toast
+                if (updateService.IsMigrationToRustLM)
                 {
-                    if (MainWindow is Views.MainWindow mainWin)
+                    Dispatcher.Invoke(() =>
                     {
-                        var versionToShow = updateService.LatestAvailableVersion ?? updateService.CurrentVersion;
-                        mainWin.ShowUpdateNotification(versionToShow, async () =>
+                        var updateWindow = new Views.UpdateWindow(updateService);
+                        updateWindow.Owner = MainWindow;
+                        updateWindow.ShowDialog();
+                    });
+                }
+                else
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        if (MainWindow is Views.MainWindow mainWin)
                         {
-                            await updateService.UpdateAsync();
-                        });
-                    }
-                });
+                            var versionToShow = updateService.LatestAvailableVersion ?? updateService.CurrentVersion;
+                            mainWin.ShowUpdateNotification(versionToShow, async () =>
+                            {
+                                await updateService.UpdateAsync();
+                            });
+                        }
+                    });
+                }
             }
             else
             {
-                _logger?.Info("[APP] ℹ️ Обновлений не найдено или интервал проверки не истёк.");
+                _logger?.Info("[APP] Обновлений не найдено.");
             }
         }
         catch (Exception ex)

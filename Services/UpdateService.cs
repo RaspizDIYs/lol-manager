@@ -23,7 +23,7 @@ public class UpdateService : IUpdateService
     private const string RustLMReleasesFallbackUrl = "https://github.com/RaspizDIYs/rustlm/releases/latest";
 
     private static string RustLMExePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RustLM", "RustLM.exe");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "com.rustlm.app", "RustLM.exe");
 
     public string CurrentVersion 
     { 
