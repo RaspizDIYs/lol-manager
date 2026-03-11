@@ -16,10 +16,15 @@ public static class MigrationService
     private const string RustLmExeName = "RustLM.exe";
     private const string InstallerFileName = "RustLM_0.1.0_x64-setup.exe";
     private const string DownloadUrl = "https://github.com/RaspizDIYs/rustlm/releases/latest/download/RustLM_0.1.0_x64-setup.exe";
+    private const string MigrationDeclinedFlag = "migration_declined";
 
+    /// <summary>
+    /// Tauri NSIS installer использует identifier (com.rustlm.app) для пути установки,
+    /// а НЕ productName.
+    /// </summary>
     private static readonly string RustLmInstallPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "RustLM",
+        "com.rustlm.app",
         RustLmExeName);
 
     /// <summary>
@@ -39,7 +44,17 @@ public static class MigrationService
                 return true;
             }
 
-            // 2. Спрашиваем пользователя
+            // 2. Если пользователь ранее отказался — не спрашиваем снова
+            var flagPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LolManager", MigrationDeclinedFlag);
+            if (File.Exists(flagPath))
+            {
+                logger?.Info("[MIGRATION] Пользователь ранее отказался от миграции");
+                return false;
+            }
+
+            // 3. Спрашиваем пользователя
             var result = MessageBox.Show(
                 "Доступна новая версия менеджера — RustLM!\n\n" +
                 "Она быстрее, современнее и полностью совместима с вашими данными.\n\n" +
@@ -52,6 +67,7 @@ public static class MigrationService
             if (result != MessageBoxResult.Yes)
             {
                 logger?.Info("[MIGRATION] Пользователь отказался от миграции");
+                try { File.WriteAllText(flagPath, DateTime.UtcNow.ToString("o")); } catch { }
                 return false;
             }
 
@@ -132,8 +148,7 @@ public static class MigrationService
             {
                 FileName = installerPath,
                 Arguments = "/S", // NSIS тихая установка
-                UseShellExecute = true,
-                Verb = "runas" // Запрос прав администратора если нужно
+                UseShellExecute = true
             };
 
             var process = Process.Start(psi);
