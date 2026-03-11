@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -14,11 +15,11 @@ public partial class ChangelogWindow : Window
         InitializeComponent();
         _updateService = updateService;
         
-        LoadChangelog();
+        _ = LoadChangelogAsync();
         SetupEventHandlers();
     }
 
-    private async void LoadChangelog()
+    private async Task LoadChangelogAsync()
     {
         try
         {

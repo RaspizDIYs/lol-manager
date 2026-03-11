@@ -139,89 +139,96 @@ public partial class RiotClientService : IRiotClientService
             await WaitForRiotUxWindowAsync(TimeSpan.FromSeconds(3), externalToken);
             await Task.Delay(500, externalToken);
         }
-        // 2c) Запустить прогрев RSO в фоне
-        _ = Task.Run(async () =>
-        {
-            try { await WarmUpRsoAsync(externalToken); } catch { }
-        }, externalToken);
+        // 2c) Прогреть RSO (иначе RC может не показать форму логина)
+        try { await WarmUpRsoAsync(externalToken); } catch { }
 
-        // 3) Немедленно попытаться UIA-ввод (как только появится окно/DOM)
-        sw.Restart();
-        _logger.UiEvent("UIA", "starting TryLoginViaUIAutomationAsync");
-        externalToken.ThrowIfCancellationRequested();
-        bool uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(45), externalToken);
-        _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
+        // 3) Если уже авторизованы (RC сохранил сессию) — ничего не вводим
+        bool isAuthorized = await IsRsoAuthorizedAsync(externalToken);
+        bool uiaOk = false;
+        if (isAuthorized)
+        {
+            _logger.Info("Login: RC already authorized. Skipping UIA credential input.");
+            uiaOk = true;
+        }
+        else
+        {
+            // 3a) Гейт: если форма логина не найдена — не пытаемся вводить вообще
+            var loginUiReady = await WaitForRiotLoginFieldsAsync(TimeSpan.FromSeconds(12), externalToken);
+            if (!loginUiReady)
+            {
+                throw new InvalidOperationException("Форма логина Riot Client не найдена. Я не буду вводить логин/пароль, чтобы не попасть в чужое поле ввода.");
+            }
+
+            // 3b) UIA-ввод (только если форма логина реально найдена)
+            sw.Restart();
+            _logger.UiEvent("UIA", "starting TryLoginViaUIAutomationAsync");
+            externalToken.ThrowIfCancellationRequested();
+            uiaOk = await TryLoginViaUIAutomationAsync(username, password, TimeSpan.FromSeconds(45), externalToken);
+            _logger.Info($"STEP UIA_INPUT_DONE result={uiaOk} in {sw.ElapsedMilliseconds}ms");
+
+            // Сначала проверяем авторизацию (быстро - каждые 300ms, до 6 сек)
+            if (uiaOk)
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    externalToken.ThrowIfCancellationRequested();
+                    isAuthorized = await IsRsoAuthorizedAsync(externalToken);
+                    if (isAuthorized)
+                    {
+                        _logger.LoginFlow("RSO authorization confirmed", "Login successful");
+                        break;
+                    }
+                    await Task.Delay(300, externalToken);
+                }
+            }
+        }
 
         // 4) Параллельно в фоне убедимся, что RC lockfile готов (для фоллбека запуска)
         var rcLockReady = WaitForRcLockfileAsync(TimeSpan.FromSeconds(30), externalToken);
 
         // 5) Агрессивно запускаем League параллельно с проверкой авторизации
         sw.Restart();
-        bool isAuthorized = false;
-        
-        if (uiaOk)
+
+        // Финальная проверка авторизации (даже если UIA вернул false — RC мог залогиниться сам)
+        if (!isAuthorized)
         {
-            _logger.LoginFlow("Login credentials submitted", "Checking authorization and launching League");
-            
-            // Сначала проверяем авторизацию (быстро - каждые 300ms, до 6 сек)
             for (int i = 0; i < 20; i++)
             {
                 externalToken.ThrowIfCancellationRequested();
                 isAuthorized = await IsRsoAuthorizedAsync(externalToken);
-                if (isAuthorized)
-                {
-                    _logger.LoginFlow("RSO authorization confirmed", "Login successful");
-                    break;
-                }
+                if (isAuthorized) break;
                 await Task.Delay(300, externalToken);
             }
-            
-            if (!isAuthorized)
-            {
-                _logger.Warning("RSO authorization not confirmed after 6s - login may have failed");
-            }
-            else
-            {
-                // Авторизация подтверждена - запускаем League
-                _logger.LoginFlow("Authorization confirmed, launching League of Legends", "Starting launch sequence");
-                
-                try { await rcLockReady; } catch { }
-                await Task.Delay(500, externalToken);
-                
-                externalToken.ThrowIfCancellationRequested();
-                var launched = await TryLaunchLeagueViaRiotApiAsync(externalToken);
-                if (!launched) 
-                {
-                    _logger.LoginFlow("API launch failed, trying direct launch", "Using RiotClientServices");
-                    await Task.Delay(500, externalToken);
-                    externalToken.ThrowIfCancellationRequested();
-                    launched = await TryLaunchLeagueClientAsync(externalToken);
-                }
-                
-                if (launched)
-                {
-                    _logger.LoginFlow("League launch initiated", "Waiting for League to start");
-                    
-                    // Ждём появления LCU lockfile
-                    var lcuReady = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30), externalToken);
-                    if (lcuReady != null)
-                    {
-                        _logger.LoginFlow("League started successfully", "LCU is ready");
-                    }
-                    else
-                    {
-                        _logger.Warning("League lockfile not detected after 30s");
-                    }
-                }
-                else
-                {
-                    _logger.Error("All League launch methods failed");
-                }
-            }
+        }
+
+        if (!isAuthorized)
+        {
+            _logger.Warning("RSO authorization not confirmed - skipping League launch");
         }
         else
         {
-            _logger.Warning("UIA login failed - cannot proceed with League launch");
+            _logger.LoginFlow("Authorization confirmed, launching League of Legends", "Starting launch sequence");
+
+            try { await rcLockReady; } catch { }
+            await Task.Delay(500, externalToken);
+
+            // Используем тот же полный набор фоллбеков, что и кнопка "Перезапустить"
+            externalToken.ThrowIfCancellationRequested();
+            if (!IsLeagueProcessRunning())
+            {
+                await StartLeagueAsync();
+            }
+
+            _logger.LoginFlow("League launch initiated", "Waiting for League to start");
+            var lcuReady = await WaitForLcuLockfileAsync(TimeSpan.FromSeconds(30), externalToken);
+            if (lcuReady != null)
+            {
+                _logger.LoginFlow("League started successfully", "LCU is ready");
+            }
+            else
+            {
+                _logger.Warning("League lockfile not detected after 30s");
+            }
         }
         _logger.Info($"STEP AUTH_AND_LAUNCH in {sw.ElapsedMilliseconds}ms");
         
@@ -627,24 +634,16 @@ public partial class RiotClientService : IRiotClientService
 
             if (hwnd != IntPtr.Zero)
             {
-                for (int i = 0; i < 2; i++)
-                {
-                    ShowWindow(hwnd, ShowWindowCommands.Restore);
-                    SetForegroundWindow(hwnd);
-                    await Task.Delay(50, cancellationToken);
-                }
-                _logger.Info("UIA: window activated");
+                ShowWindow(hwnd, ShowWindowCommands.Restore);
+                SetForegroundWindow(hwnd);
+                await Task.Delay(80, cancellationToken);
             }
 
             await Task.Delay(100, cancellationToken);
             while (DateTime.UtcNow < deadline)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (scanCycles % 10 == 0 && hwnd != IntPtr.Zero)
-                {
-                    ShowWindow(hwnd, ShowWindowCommands.Restore);
-                    SetForegroundWindow(hwnd);
-                }
+                // не спамим SetForegroundWindow в цикле
 
                 riotContent ??= window.FindFirstDescendant(cf =>
                                         cf.ByClassName("Chrome_RenderWidgetHostHWND")
@@ -743,15 +742,6 @@ public partial class RiotClientService : IRiotClientService
                 }
 
                 scanCycles++;
-                if (scanCycles % 20 == 0 && hwnd != IntPtr.Zero)
-                {
-                    try
-                    {
-                        _logger.Info("UIA: center click to wake up RC content");
-                        ClickWindowRelative(hwnd, 0.5, 0.5);
-                    }
-                    catch { }
-                }
                 await Task.Delay(80, cancellationToken);
             }
 
@@ -759,20 +749,6 @@ public partial class RiotClientService : IRiotClientService
             {
                 _logger.Info("UIA: username/password fields not found (timeout)");
                 return false;
-            }
-
-            _logger.Info("UIA: setting focus on username field");
-            try 
-            { 
-                usernameEl.Focus();
-                await Task.Delay(30, cancellationToken);
-                usernameEl.Click(moveMouse: false);
-                await Task.Delay(30, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning($"UIA: focus/click failed: {ex.Message}, trying alternative");
-                try { usernameEl.Focus(); } catch { }
             }
 
             _logger.Info("UIA: setting username");
@@ -785,8 +761,6 @@ public partial class RiotClientService : IRiotClientService
             }
             else
             {
-                usernameEl.Focus();
-                await Task.Delay(50, cancellationToken);
                 usernameEl.Text = username;
                 _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (username via Text property)");
             }
@@ -820,8 +794,6 @@ public partial class RiotClientService : IRiotClientService
             }
             else
             {
-                passwordEl.Focus();
-                await Task.Delay(50, cancellationToken);
                 passwordEl.Text = password;
                 _logger.Info("UIA: INPUT_METHOD = TEXT_PROPERTY (password via Text property)");
             }
@@ -865,19 +837,38 @@ public partial class RiotClientService : IRiotClientService
             }
             else
             {
+                // Частый кейс: кнопка submit (стрелка вправо) без имени. Пробуем найти по расположению рядом с полем пароля.
                 try
                 {
-                    var active = GetForegroundWindow();
-                    if (active == new IntPtr(window.Properties.NativeWindowHandle.Value))
+                    var submit = FindSubmitButtonNearPassword(riotContent ?? window, passwordEl);
+                    if (submit != null)
                     {
-                        passwordEl.Focus();
-                        await Task.Delay(30, cancellationToken);
-                        _logger.UiEvent("UIA Login", "ENTER_KEY", "SignIn button not found, using Enter");
-                        SendVirtualKey(VirtualKey.RETURN);
+                        _logger.Info("UIA: submit button inferred by position near password field");
+                        try { submit.AsButton().Invoke(); }
+                        catch { try { submit.Click(); } catch { } }
                     }
-                    else { _logger.Info("UIA: skip ENTER, RC window not active"); }
+                    else
+                    {
+                        // Фоллбек: отправить Enter только если активное окно — RC (иначе не шлём клавиатуру в никуда)
+                        var active = GetForegroundWindow();
+                        if (active == new IntPtr(window.Properties.NativeWindowHandle.Value))
+                        {
+                            try { passwordEl.Focus(); } catch { }
+                            await Task.Delay(30, cancellationToken);
+                            _logger.UiEvent("UIA Login", "ENTER_KEY", "Submit button not found, using Enter (RC active)");
+                            SendVirtualKey(VirtualKey.RETURN);
+                        }
+                        else
+                        {
+                            _logger.Info("UIA: submit not found and RC not active - aborting submit");
+                            return false;
+                        }
+                    }
                 }
-                catch { }
+                catch
+                {
+                    return false;
+                }
             }
 
             while (DateTime.UtcNow < deadline)
@@ -899,6 +890,115 @@ public partial class RiotClientService : IRiotClientService
             _logger.Error($"TryLoginViaUIAutomationAsync(ct) error: {ex.Message}");
             return false;
         }
+    }
+
+    private static AutomationElement? FindSubmitButtonNearPassword(AutomationElement container, TextBox passwordEl)
+    {
+        try
+        {
+            var pwRect = passwordEl.BoundingRectangle;
+            if (pwRect.IsEmpty) return null;
+
+            var buttons = container.FindAllDescendants(cf => cf.ByControlType(ControlType.Button));
+            AutomationElement? best = null;
+            double bestScore = double.MaxValue;
+
+            var pwCx = pwRect.Left + pwRect.Width / 2.0;
+            var pwCy = pwRect.Top + pwRect.Height / 2.0;
+
+            foreach (var b in buttons)
+            {
+                try
+                {
+                    if (!b.IsEnabled) continue;
+                    var r = b.BoundingRectangle;
+                    if (r.IsEmpty) continue;
+
+                    // Обычно стрелка справа от поля пароля и примерно на той же высоте
+                    var bx = r.Left + r.Width / 2.0;
+                    var by = r.Top + r.Height / 2.0;
+
+                    if (bx < pwRect.Right - 5) continue;
+                    if (Math.Abs(by - pwCy) > Math.Max(18, pwRect.Height * 1.5)) continue;
+
+                    var dx = bx - (pwRect.Right);
+                    var dy = by - pwCy;
+                    var score = dx * dx + dy * dy;
+
+                    if (score < bestScore)
+                    {
+                        bestScore = score;
+                        best = b;
+                    }
+                }
+                catch { }
+            }
+
+            return best;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async Task<bool> WaitForRiotLoginFieldsAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + timeout;
+            using var automation = new UIA3Automation();
+
+            Application? rcApp = null;
+            for (int i = 0; i < 20 && rcApp == null; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var p = Process.GetProcessesByName("RiotClientUx").FirstOrDefault()
+                        ?? Process.GetProcessesByName("RiotClientUxRender").FirstOrDefault()
+                        ?? Process.GetProcessesByName("Riot Client").FirstOrDefault();
+                if (p != null)
+                {
+                    try { rcApp = Application.Attach(p); } catch { }
+                }
+                if (rcApp == null) await Task.Delay(250, cancellationToken);
+            }
+            if (rcApp == null) return false;
+
+            var window = rcApp.GetMainWindow(automation, TimeSpan.FromSeconds(2));
+            if (window == null) return false;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var riotContent = window.FindFirstDescendant(cf =>
+                                        cf.ByClassName("Chrome_RenderWidgetHostHWND")
+                                          .Or(cf.ByClassName("Chrome_WidgetWin_0"))
+                                          .Or(cf.ByClassName("Intermediate D3D Window")))
+                                   ?? window;
+
+                var usernameEl = riotContent?.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("username").Or(cf.ByAutomationId("login")).Or(cf.ByName("username")).Or(cf.ByName("Login")).Or(cf.ByName("Email")).Or(cf.ByName("Адрес электронной почты")).Or(cf.ByName("Имя пользователя"))
+                )?.AsTextBox();
+                var passwordEl = riotContent?.FindFirstDescendant(cf =>
+                    cf.ByAutomationId("password").Or(cf.ByName("password")).Or(cf.ByName("Пароль")).Or(cf.ByName("Password"))
+                )?.AsTextBox();
+
+                if (usernameEl != null && passwordEl != null) return true;
+
+                var signIn = riotContent?.FindFirstDescendant(cf =>
+                    cf.ByControlType(ControlType.Button)
+                      .And(cf.ByName("Sign in").Or(cf.ByName("Sign In")).Or(cf.ByName("Log In")).Or(cf.ByName("Войти"))));
+                if (signIn != null)
+                {
+                    try { signIn.AsButton().Invoke(); } catch { }
+                }
+
+                await Task.Delay(200, cancellationToken);
+            }
+        }
+        catch { }
+        return false;
     }
 
     private async Task TryLoginViaLeagueClientWithRetries(string username, string password, int maxAttempts, int delayMs)
@@ -2127,8 +2227,18 @@ public partial class RiotClientService : IRiotClientService
             };
             Process.Start(psi);
             _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
-            await Task.Delay(3000); // Увеличиваем задержку
-            return true;
+            await Task.Delay(600);
+
+            var deadline = DateTime.UtcNow.AddSeconds(12);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (IsLeagueProcessRunning()) return true;
+                try { _ = FindLockfile(product: "LCU"); return true; } catch { }
+                await Task.Delay(500);
+            }
+
+            _logger.Warning("TryLaunchLeagueClientAsync: RiotClientServices started but League/LCU not detected");
+            return false;
         }
         catch (Exception ex)
         {
@@ -2202,8 +2312,19 @@ public partial class RiotClientService : IRiotClientService
             };
             Process.Start(psi);
             _logger.ProcessEvent("RiotClientServices", "Started with League args", $"{exe} {psi.Arguments}");
-            await Task.Delay(3000, cancellationToken);
-            return true;
+            await Task.Delay(600, cancellationToken);
+
+            var deadline = DateTime.UtcNow.AddSeconds(12);
+            while (DateTime.UtcNow < deadline)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (IsLeagueProcessRunning()) return true;
+                try { _ = FindLockfile(product: "LCU"); return true; } catch { }
+                await Task.Delay(500, cancellationToken);
+            }
+
+            _logger.Warning("TryLaunchLeagueClientAsync(ct): RiotClientServices started but League/LCU not detected");
+            return false;
         }
         catch (OperationCanceledException)
         {

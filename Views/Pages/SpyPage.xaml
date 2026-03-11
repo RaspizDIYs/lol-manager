@@ -20,7 +20,7 @@
         
         <StackPanel Grid.Row="0" Margin="20,20,20,0">
             <TextBlock Text="Reveal (шпион)" FontSize="24" FontWeight="Bold" Margin="0,0,0,6"/>
-            <TextBlock Text="Информация об игроках вашей команды в чемпионском селекте" 
+            <TextBlock Text="Информация об игроках обеих команд в чемпионском селекте" 
                        FontSize="12" 
                        Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                        Margin="0,0,0,16"/>
@@ -41,7 +41,7 @@
                 </Border>
                 
                 <!-- Кнопка получить информацию -->
-                <ui:Button Content="Получить информацию о команде" 
+                <ui:Button Content="Получить информацию о командах" 
                           Command="{Binding GetTeamInfoCommand}"
                           Appearance="Primary"
                           HorizontalAlignment="Stretch"
@@ -59,9 +59,57 @@
                     </StackPanel>
                 </Border>
                 
-                <!-- Информация о команде (динамически) -->
+                <!-- Информация о союзниках (динамически) -->
+                <TextBlock Text="Союзники"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,8"
+                           Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}"/>
                 <ItemsControl ItemsSource="{Binding TeamPlayers}"
                               Visibility="{Binding HasTeamInfo, Converter={StaticResource BoolToVisibility}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <ui:Card Margin="0,0,0,10" Padding="12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding Name}"
+                                                   FontSize="15"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,0,0,4"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                            <TextBlock Text="{Binding FullRank}" FontWeight="Medium" FontSize="13"/>
+                                            <TextBlock Text=" • " Foreground="Gray" Margin="5,0"/>
+                                            <TextBlock Text="{Binding WinRate}" FontWeight="Medium" FontSize="13"/>
+                                            <TextBlock Text="{Binding Wins, StringFormat=' ({0}W'}" Foreground="#FF4CAF50" Margin="5,0,0,0" FontSize="12"/>
+                                            <TextBlock Text="{Binding Losses, StringFormat=' {0}L)'}" Foreground="#FFF44336" FontSize="12"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <ui:Button Grid.Column="1"
+                                              Content="U.GG"
+                                              Appearance="Secondary"
+                                              Command="{Binding DataContext.OpenUggCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                              CommandParameter="{Binding UggLink}"
+                                              Width="60"
+                                              Height="28"
+                                              FontSize="12"/>
+                                </Grid>
+                            </ui:Card>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <!-- Информация о врагах (динамически) -->
+                <TextBlock Text="Враги"
+                           FontSize="14"
+                           FontWeight="SemiBold"
+                           Margin="0,8,0,8"
+                           Visibility="{Binding HasEnemyInfo, Converter={StaticResource BoolToVisibility}}"/>
+                <ItemsControl ItemsSource="{Binding EnemyPlayers}"
+                              Visibility="{Binding HasEnemyInfo, Converter={StaticResource BoolToVisibility}}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <ui:Card Margin="0,0,0,10" Padding="12">
@@ -151,7 +199,7 @@
                 <StackPanel Margin="15">
                     <TextBlock Text="Что делает эта функция?" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
                     
-                    <TextBlock Text="• Показывает информацию о соратниках по команде в чемпионском селекте"
+                    <TextBlock Text="• Показывает информацию об игроках обеих команд в чемпионском селекте"
                                Margin="0,0,0,3" FontSize="12"/>
                     <TextBlock Text="• Отображает ранг, винрейт и статистику игроков"
                                Margin="0,0,0,3" FontSize="12"/>

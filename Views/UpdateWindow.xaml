@@ -2,7 +2,7 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Title="Доступно обновление" 
+                 Title="Переход на RustLM"
                  Height="400" 
                  Width="600"
                  WindowStartupLocation="CenterOwner"
@@ -25,14 +25,14 @@
                           Width="48" 
                           Height="48" 
                           Margin="0,0,0,10"/>
-            <TextBlock Text="Доступно обновление!" 
-                       FontSize="24" 
-                       FontWeight="Bold" 
+            <TextBlock Text="Переход на RustLM"
+                       FontSize="24"
+                       FontWeight="Bold"
                        HorizontalAlignment="Center"/>
-            <TextBlock Text="Доступна новая версия LolManager" 
-                       FontSize="14" 
-                       Foreground="Gray" 
-                       HorizontalAlignment="Center" 
+            <TextBlock Text="LolManager переезжает на новую платформу — RustLM"
+                       FontSize="14"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"
                        Margin="0,5,0,0"/>
         </StackPanel>
         
@@ -43,7 +43,7 @@
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Что нового в этой версии:" 
+                <TextBlock Grid.Row="0" Text="Что нового в RustLM:"
                            FontWeight="SemiBold" 
                            HorizontalAlignment="Center"
                            Margin="0,0,0,12"/>
@@ -69,7 +69,7 @@
                        Appearance="Secondary" 
                        Margin="0,0,10,0"/>
             <ui:Button x:Name="UpdateButton" 
-                       Content="Обновить сейчас" 
+                       Content="Перейти на RustLM"
                        Appearance="Primary"/>
         </StackPanel>
     </Grid>

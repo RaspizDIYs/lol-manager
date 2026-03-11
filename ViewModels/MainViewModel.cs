@@ -137,6 +137,11 @@ public partial class MainViewModel : ObservableObject
 	public ObservableCollection<PlayerInfo> TeamPlayers { get; } = new();
 
 	[ObservableProperty]
+	private bool hasEnemyInfo = false;
+
+	public ObservableCollection<PlayerInfo> EnemyPlayers { get; } = new();
+
+	[ObservableProperty]
 	private List<RegionInfo> availableRegions = new()
 	{
 		new("euw1", "Europe West"),
@@ -246,6 +251,7 @@ public partial class MainViewModel : ObservableObject
 
     private System.Threading.CancellationTokenSource? _loginCts;
 	private readonly SemaphoreSlim _loginGate = new(1, 1);
+	private Task? _accountInfoTask;
 
 	[ObservableProperty]
 	private string loginStatus = string.Empty;
@@ -1048,63 +1054,22 @@ public partial class MainViewModel : ObservableObject
             _logger.Info($"Login requested for {SelectedAccount.Username}");
             
             LoginStatus = $"Вход в {SelectedAccount.Username}...";
-            await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
-            
-            LoginStatus = "Получение информации об аккаунте...";
-            
-            await Task.Delay(3000, newCts.Token);
-            
-            var accountInfo = await _riotClientService.GetAccountInfoAsync();
-            if (accountInfo.HasValue && SelectedAccount != null)
+            await Task.Run(async () =>
             {
-                var expectedUsername = SelectedAccount.Username;
-                var loggedInUsername = accountInfo.Value.Username;
-                
-                // Проверяем, что вошли именно в тот аккаунт, который был выбран
-                bool usernameMatches = false;
-                if (!string.IsNullOrEmpty(loggedInUsername))
-                {
-                    // Сравниваем username без учета регистра и пробелов
-                    usernameMatches = string.Equals(
-                        expectedUsername.Trim(), 
-                        loggedInUsername.Trim(), 
-                        StringComparison.OrdinalIgnoreCase);
-                    
-                    if (!usernameMatches)
-                    {
-                        _logger.Warning($"Username mismatch! Expected: {expectedUsername}, Got: {loggedInUsername}. Skipping data update to prevent wrong account assignment.");
-                        LoginStatus = $"Предупреждение: вошли в другой аккаунт ({loggedInUsername})";
-                        await Task.Delay(3000, newCts.Token);
-                        LoginStatus = string.Empty;
-                        return;
-                    }
-                }
-                
-                _logger.Info($"Loading account info for {SelectedAccount.Username}: RiotId={accountInfo.Value.RiotId}, SummonerName={accountInfo.Value.SummonerName}, Rank={accountInfo.Value.Rank}, AvatarUrl={accountInfo.Value.AvatarUrl}, RankIconUrl={accountInfo.Value.RankIconUrl}, Username={loggedInUsername}");
-                
-                // Обновляем данные только для выбранного аккаунта
-                SelectedAccount.AvatarUrl = accountInfo.Value.AvatarUrl;
-                SelectedAccount.SummonerName = accountInfo.Value.SummonerName;
-                SelectedAccount.Rank = accountInfo.Value.Rank;
-                SelectedAccount.RankDisplay = accountInfo.Value.Rank;
-                SelectedAccount.RiotId = accountInfo.Value.RiotId;
-                SelectedAccount.RankIconUrl = accountInfo.Value.RankIconUrl;
-                _accountsStorage.SaveAccounts(Accounts);
-                _logger.Info($"Account info updated for {SelectedAccount.Username}: {accountInfo.Value.RiotId} ({accountInfo.Value.Rank})");
-            }
-            else if (SelectedAccount != null)
-            {
-                _logger.Warning($"Failed to get account info for {SelectedAccount.Username}");
-            }
+                await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
+            }, newCts.Token);
             
-            LoginStatus = "Готово! Вход выполнен успешно";
+			var expectedUsername = SelectedAccount.Username;
+
+			LoginStatus = "Вход выполнен. Обновляю данные...";
+			_accountInfoTask = Task.Run(() => FetchAndApplyAccountInfoAsync(expectedUsername, newCts), CancellationToken.None);
             
             HasConnectionIssue = false;
             ConnectionIssueText = string.Empty;
             _lastConnectionIssueToast = string.Empty;
             
             await Task.Delay(1500, newCts.Token);
-            LoginStatus = string.Empty;
+			if (ReferenceEquals(_loginCts, newCts)) LoginStatus = string.Empty;
         }
         catch (OperationCanceledException)
         {
@@ -1125,14 +1090,72 @@ public partial class MainViewModel : ObservableObject
             IsLoggingIn = false;
 			StopConnectivityLoop();
 			_loginGate.Release();
-
-			if (ReferenceEquals(_loginCts, newCts))
-			{
-				try { newCts.Dispose(); } catch { }
-				_loginCts = null;
-			}
         }
     }
+
+	private async Task FetchAndApplyAccountInfoAsync(string expectedUsername, System.Threading.CancellationTokenSource ownerCts)
+	{
+		try
+		{
+			var token = ownerCts.Token;
+			var deadline = DateTime.UtcNow.AddSeconds(14);
+
+			while (DateTime.UtcNow < deadline)
+			{
+				token.ThrowIfCancellationRequested();
+				if (!ReferenceEquals(_loginCts, ownerCts)) return;
+
+				var accountInfo = await _riotClientService.GetAccountInfoAsync();
+				if (accountInfo.HasValue)
+				{
+					var loggedInUsername = accountInfo.Value.Username;
+					if (!string.IsNullOrEmpty(loggedInUsername) &&
+					    !string.Equals(expectedUsername.Trim(), loggedInUsername.Trim(), StringComparison.OrdinalIgnoreCase))
+					{
+						_logger.Warning($"Account info username mismatch! Expected: {expectedUsername}, Got: {loggedInUsername}. Skipping update.");
+						return;
+					}
+
+					await Application.Current.Dispatcher.InvokeAsync(() =>
+					{
+						if (!ReferenceEquals(_loginCts, ownerCts)) return;
+
+						var acc = Accounts.FirstOrDefault(a =>
+							string.Equals(a.Username.Trim(), expectedUsername.Trim(), StringComparison.OrdinalIgnoreCase));
+						if (acc == null) return;
+
+						acc.AvatarUrl = accountInfo.Value.AvatarUrl;
+						acc.SummonerName = accountInfo.Value.SummonerName;
+						acc.Rank = accountInfo.Value.Rank;
+						acc.RankDisplay = accountInfo.Value.Rank;
+						acc.RiotId = accountInfo.Value.RiotId;
+						acc.RankIconUrl = accountInfo.Value.RankIconUrl;
+					});
+
+					try { _accountsStorage.SaveAccounts(Accounts); } catch { }
+					_logger.Info($"Account info updated for {expectedUsername}: {accountInfo.Value.RiotId} ({accountInfo.Value.Rank})");
+
+					if (ReferenceEquals(_loginCts, ownerCts))
+					{
+						await Application.Current.Dispatcher.InvokeAsync(() =>
+						{
+							if (ReferenceEquals(_loginCts, ownerCts)) LoginStatus = string.Empty;
+						});
+					}
+					return;
+				}
+
+				await Task.Delay(500, token);
+			}
+		}
+		catch (OperationCanceledException)
+		{
+		}
+		catch (Exception ex)
+		{
+			_logger.Warning($"FetchAndApplyAccountInfoAsync error: {ex.Message}");
+		}
+	}
 
     [RelayCommand]
     private void CancelLogin()
@@ -1370,7 +1393,10 @@ public partial class MainViewModel : ObservableObject
 			await Task.Delay(500, newCts.Token);
 
 			LoginStatus = $"Вход в {SelectedAccount.Username}...";
-			await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
+			await Task.Run(async () =>
+			{
+				await _riotClientService.LoginAsync(SelectedAccount.Username, password, newCts.Token);
+			}, newCts.Token);
 
 			LoginStatus = "Готово";
 			await Task.Delay(1500, newCts.Token);
@@ -1863,16 +1889,16 @@ public partial class MainViewModel : ObservableObject
 			}
 			
 			_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
-			var isValid = await _revealService.TestApiKeyAsync();
+			var result = await _revealService.TestApiKeyAsync();
 			
-			if (isValid)
+			if (result.IsValid)
 			{
-				RevealApiStatus = $"Подключение успешно ({RevealSettings.SelectedRegion.ToUpper()})";
+				RevealApiStatus = result.Message;
 				RevealApiStatusColor = "Green";
 			}
 			else
 			{
-				RevealApiStatus = "Неверный API ключ или регион";
+				RevealApiStatus = result.Message;
 				RevealApiStatusColor = "Red";
 			}
 		}
@@ -1895,25 +1921,44 @@ public partial class MainViewModel : ObservableObject
 			// Обновляем API ключ и регион в сервисе
 			_revealService.SetApiConfiguration(RevealSettings.RiotApiKey, RevealSettings.SelectedRegion);
 			
-			var teamInfo = await _revealService.GetTeamInfoAsync();
+			var teamsInfo = await _revealService.GetTeamsInfoAsync();
 			
-			if (teamInfo != null && teamInfo.Count > 0)
+			if (teamsInfo != null)
 			{
 				TeamPlayers.Clear();
-				foreach (var player in teamInfo)
+				foreach (var player in teamsInfo.Value.Allies)
 				{
 					TeamPlayers.Add(player);
 				}
-				
-				HasTeamInfo = true;
-				RevealTeamStatus = $"Найдено {teamInfo.Count} игроков";
-				RevealTeamStatusColor = "Green";
+
+				EnemyPlayers.Clear();
+				foreach (var player in teamsInfo.Value.Enemies)
+				{
+					EnemyPlayers.Add(player);
+				}
+
+				HasTeamInfo = TeamPlayers.Count > 0;
+				HasEnemyInfo = EnemyPlayers.Count > 0;
+
+				if (HasTeamInfo || HasEnemyInfo)
+				{
+					RevealTeamStatus = $"Союзники: {TeamPlayers.Count}, враги: {EnemyPlayers.Count}";
+					RevealTeamStatusColor = "Green";
+				}
+				else
+				{
+					RevealTeamStatus = "Игроки не найдены. Нужно быть в чемпионском селекте.";
+					RevealTeamStatusColor = "Orange";
+				}
 			}
 			else
 			{
-				RevealTeamStatus = "Команда не найдена. Нужно быть в чемпионском селекте.";
+				RevealTeamStatus = "Команды не найдены. Нужно быть в чемпионском селекте.";
 				RevealTeamStatusColor = "Orange";
 				HasTeamInfo = false;
+				HasEnemyInfo = false;
+				TeamPlayers.Clear();
+				EnemyPlayers.Clear();
 			}
 		}
 		catch (Exception ex)

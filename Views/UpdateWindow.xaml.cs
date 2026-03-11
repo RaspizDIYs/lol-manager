@@ -16,11 +16,11 @@ public partial class UpdateWindow : FluentWindow
         InitializeComponent();
         _updateService = updateService;
         
-        LoadChangelog();
+        _ = LoadChangelogAsync();
         SetupEventHandlers();
     }
 
-    private async void LoadChangelog()
+    private async Task LoadChangelogAsync()
     {
         try
         {
@@ -52,7 +52,7 @@ public partial class UpdateWindow : FluentWindow
         try
         {
             UpdateButton.IsEnabled = false;
-            UpdateButton.Content = "Обновление...";
+            UpdateButton.Content = "Установка RustLM...";
             
             var success = await _updateService.UpdateAsync();
             if (success)

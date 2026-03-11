@@ -535,8 +535,8 @@
                HorizontalOffset="-150"
                VerticalOffset="8"
                AllowsTransparency="True">
-            <Border Background="{DynamicResource ControlFillColorDefaultBrush}"
-                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            <Border Background="#FF1A1A1A"
+                    BorderBrush="#FF343434"
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="4">
@@ -547,6 +547,7 @@
                     <ui:Button x:Name="MinimizeToTrayButton"
                               Content="Свернуть в трей"
                               Appearance="Secondary"
+                              Background="#FF262626"
                               HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Left"
                               Height="36"
@@ -559,6 +560,7 @@
                     <ui:Button x:Name="ExitAppButton"
                               Content="Закрыть полностью"
                               Appearance="Secondary"
+                              Background="#FF262626"
                               HorizontalAlignment="Stretch"
                               HorizontalContentAlignment="Left"
                               Height="36"

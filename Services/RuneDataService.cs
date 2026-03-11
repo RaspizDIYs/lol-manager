@@ -72,7 +72,8 @@ public class RuneDataService
             // Загружаем руны текущей версии
             var url = $"https://ddragon.leagueoflegends.com/cdn/{_cachedVersion}/data/ru_RU/runesReforged.json";
             var json = Http.GetStringAsync(url).GetAwaiter().GetResult();
-            var elements = JsonDocument.Parse(json).RootElement;
+            using var jsonDoc = JsonDocument.Parse(json);
+            var elements = jsonDoc.RootElement;
 
             var result = new List<RunePath>();
 

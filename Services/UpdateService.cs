@@ -17,6 +17,13 @@ public class UpdateService : IUpdateService
     private readonly NotificationService _notificationService;
     private UpdateManager? _updateManager;
     public string? LatestAvailableVersion { get; private set; }
+    public bool IsMigrationToRustLM { get; private set; }
+
+    private const string RustLMReleasesApiUrl = "https://api.github.com/repos/RaspizDIYs/rustlm/releases/latest";
+    private const string RustLMReleasesFallbackUrl = "https://github.com/RaspizDIYs/rustlm/releases/latest";
+
+    private static string RustLMExePath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RustLM", "RustLM.exe");
 
     public string CurrentVersion 
     { 
@@ -114,92 +121,32 @@ public class UpdateService : IUpdateService
         try
         {
             LatestAvailableVersion = null;
-            var checkType = forceCheck ? "manual" : "automatic";
-            _logger.Info($"Starting {checkType} update check...");
-            
-            // Не используем Velopack/GitHub API для детекта
+            IsMigrationToRustLM = false;
 
-            var settings = _settingsService.LoadUpdateSettings();
-            _logger.Info($"Current version: {CurrentVersion}, Channel: {settings.UpdateChannel}");
-            _logger.Info($"Update source: https://github.com/RaspizDIYs/lol-manager (channel: {settings.UpdateChannel})");
-            
-            // Интервал проверки отключен - проверяем при каждом запуске приложения
-            // Оставляем логику только для принудительной проверки vs автоматической
-            if (forceCheck)
+            _logger.Info($"Starting update check (current: {CurrentVersion})...");
+
+            // Если RustLM уже установлен — просто запустить и закрыться
+            if (File.Exists(RustLMExePath))
             {
-                _logger.Info("Force check - manual update check requested");
-            }
-            else
-            {
-                _logger.Info("Automatic check - checking for updates on startup");
-            }
-                
-            // Обновляем время последней проверки
-            settings.LastCheckTime = DateTime.UtcNow;
-            _settingsService.SaveUpdateSettings(settings);
-            
-            _logger.Info($"Checking for updates on {settings.UpdateChannel} channel...");
-            
-            // Проверка без API: через прямые assets/atom
-            // Режим Velopack: используем менеджер, если выбран
-            if (settings.UpdateMode == "Velopack")
-            {
-                var um = GetUpdateManager();
-                if (um != null)
+                _logger.Info($"RustLM already installed at {RustLMExePath}, launching and shutting down");
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
-                    try
-                    {
-                        var info = await um.CheckForUpdatesAsync();
-                        if (info != null)
-                        {
-                            LatestAvailableVersion = info.TargetFullRelease?.Version?.ToString();
-                            return true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warning($"Velopack check failed, fallback to direct: {ex.Message}");
-                    }
-                }
+                    FileName = RustLMExePath,
+                    UseShellExecute = true
+                });
+                System.Windows.Application.Current.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+                return await Task.FromResult(false);
             }
 
-            if (settings.UpdateChannel == "stable")
-            {
-                var stableTag = await TryGetLatestStableFromAtomAsync();
-                if (!string.IsNullOrEmpty(stableTag) && IsStableTagNewerThanCurrentBase(stableTag!))
-                {
-                    LatestAvailableVersion = stableTag;
-                    _logger.Info($"Found newer (stable via atom): {stableTag}");
-                    return true;
-                }
-            }
-            else // beta
-            {
-                var latestBetaTag = await TryGetLatestBetaFromAtomAsync();
-                if (!string.IsNullOrEmpty(latestBetaTag))
-                {
-                    if (IsTagNewerThanCurrentForBeta(latestBetaTag!))
-                    {
-                        LatestAvailableVersion = latestBetaTag;
-                        _logger.Info($"Found newer (beta via atom): {latestBetaTag}");
-                        return true;
-                    }
-                    _logger.Info($"Beta (via atom) not newer than current: {latestBetaTag} vs {CurrentVersion}");
-                }
-            }
-            
-            // Диагностический метод выключен по умолчанию
-            // await CheckGitHubReleasesDirectlyAsync(settings.UpdateChannel);
-            
-            _logger.Info("No updates available via direct atom");
-            
-            _logger.Info("No updates available via any method");
-            return false;
+            // Миграция на RustLM
+            IsMigrationToRustLM = true;
+            LatestAvailableVersion = "RustLM";
+            _logger.Info("Migration to RustLM available");
+            return await Task.FromResult(true);
         }
         catch (Exception ex)
         {
             _logger.Error($"Failed to check for updates: {ex.Message}");
-            _logger.Debug($"Update check exception details: {ex}");
             return false;
         }
     }
@@ -208,87 +155,139 @@ public class UpdateService : IUpdateService
     {
         try
         {
-            // Создаем резервные копии пользовательских данных перед обновлением
-            BackupUserData();
-            _logger.Info("Starting update process...");
-            
-            var settings = _settingsService.LoadUpdateSettings();
+            _logger.Info("Starting migration to RustLM...");
 
-            // Если выбран Velopack — попытка обновиться через него
-            if (settings.UpdateMode == "Velopack")
+            // 1. Проверяем, установлен ли уже RustLM
+            if (File.Exists(RustLMExePath))
             {
-                var um = GetUpdateManager();
-                if (um != null)
-                {
-                    try
-                    {
-                        var info = await um.CheckForUpdatesAsync();
-                        if (info != null)
-                        {
-                            await um.DownloadUpdatesAsync(info);
-                            RegisterDataValidationAfterUpdate();
-                            um.ApplyUpdatesAndRestart(info.TargetFullRelease);
-                            return true;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Warning($"Velopack update failed, fallback to direct: {ex.Message}");
-                    }
-                }
+                _logger.Info("RustLM already installed, launching directly");
+                LaunchRustLMAndShutdown();
+                return true;
             }
 
-            // Полный отказ от Velopack для скачивания: качаем установщик напрямую
-            var latestStableTag = await TryGetLatestStableFromAtomAsync();
-            if (string.IsNullOrEmpty(latestStableTag))
+            // 2. Находим URL установщика через GitHub API (latest release)
+            var setupUrl = await GetRustLMSetupUrlAsync();
+            if (string.IsNullOrEmpty(setupUrl))
             {
-                if (settings.UpdateChannel == "beta")
-                {
-                    var betaTag = await TryGetLatestBetaFromAtomAsync();
-                    if (IsTagNewerThanCurrentForBeta(betaTag))
-                    {
-                        // для beta открываем страницу релизов
-                        _ = OpenReleasesPage();
-                        return true;
-                    }
-                }
-                _logger.Info("No update available via assets/atom");
+                _logger.Error("Could not find RustLM setup URL from GitHub releases");
+                OpenUrl(RustLMReleasesFallbackUrl);
                 return false;
             }
-            if (IsStableTagNewerThanCurrentBase(latestStableTag!))
+
+            // 3. Скачиваем установщик
+            var tempPath = Path.Combine(Path.GetTempPath(), "RustLM-Setup.exe");
+            _logger.Info("Downloading RustLM installer: " + setupUrl);
+
+            var data = await HttpGetBytesWithRetry(setupUrl, TimeSpan.FromMinutes(3));
+            await File.WriteAllBytesAsync(tempPath, data);
+            _logger.Info($"RustLM installer saved: {tempPath} ({data.Length} bytes)");
+
+            // 4. Тихая установка
+            _logger.Info("Running silent install...");
+            var installProcess = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                // Скачиваем инсталлятор напрямую и запускаем
-                var ok = await DownloadAndRunStableInstallerAsync();
-                if (ok)
-                {
-                    RegisterDataValidationAfterUpdate();
-                    return true;
-                }
-            }
-            else if (_settingsService.LoadUpdateSettings().UpdateChannel == "beta")
+                FileName = tempPath,
+                Arguments = "/S",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+
+            if (installProcess != null)
             {
-                var betaTag = await TryGetLatestBetaFromAtomAsync();
-                if (IsTagNewerThanCurrentForBeta(betaTag))
-                {
-                    var ok = await DownloadAndRunBetaInstallerAsync(betaTag!);
-                    if (ok)
-                    {
-                        RegisterDataValidationAfterUpdate();
-                        return true;
-                    }
-                    else
-                    {
-                        _ = OpenReleasesPage();
-                        return true;
-                    }
-                }
+                await installProcess.WaitForExitAsync();
+                _logger.Info($"Installer exited with code: {installProcess.ExitCode}");
             }
+
+            // 4. Проверяем что установилось и запускаем
+            if (File.Exists(RustLMExePath))
+            {
+                _logger.Info("RustLM installed successfully, launching");
+                LaunchRustLMAndShutdown();
+                return true;
+            }
+
+            _logger.Warning("RustLM.exe not found after install, opening releases page");
+            OpenUrl("https://github.com/RaspizDIYs/rustlm/releases/latest");
             return false;
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to update: {ex.Message}");
+            _logger.Error($"Failed to migrate to RustLM: {ex.Message}");
+            OpenUrl("https://github.com/RaspizDIYs/rustlm/releases/latest");
             return false;
+        }
+    }
+
+    private void LaunchRustLMAndShutdown()
+    {
+        // Запускаем RustLM
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = RustLMExePath,
+            UseShellExecute = true
+        });
+
+        // Планируем удаление LolManager через Velopack (с задержкой чтобы успеть закрыться)
+        var updateExe = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LolManager", "Update.exe");
+        if (File.Exists(updateExe))
+        {
+            _logger.Info("Scheduling LolManager self-uninstall via Velopack...");
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c timeout /t 3 /noblock >nul & \"{updateExe}\" --uninstall",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+        }
+
+        System.Windows.Application.Current.Dispatcher.Invoke(() => System.Windows.Application.Current.Shutdown());
+    }
+
+    private async Task<string?> GetRustLMSetupUrlAsync()
+    {
+        try
+        {
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
+            http.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+
+            var json = await http.GetStringAsync(RustLMReleasesApiUrl);
+            using var doc = JsonDocument.Parse(json);
+            var assets = doc.RootElement.GetProperty("assets");
+
+            foreach (var asset in assets.EnumerateArray())
+            {
+                var name = asset.GetProperty("name").GetString() ?? "";
+                if (name.EndsWith("x64-setup.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    return asset.GetProperty("browser_download_url").GetString();
+                }
+            }
+
+            _logger.Warning("No x64-setup.exe asset found in latest RustLM release");
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to query RustLM releases API: {ex.Message}");
+        }
+        return null;
+    }
+
+    private void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.Error($"Failed to open URL: {ex.Message}");
         }
     }
 
@@ -302,7 +301,7 @@ public class UpdateService : IUpdateService
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LolManager-UpdateCheck");
             var url = $"https://api.github.com/repos/{repoOwner}/{repoName}/releases";
             var response = await httpClient.GetStringAsync(url);
-            var releases = JsonDocument.Parse(response);
+            using var releases = JsonDocument.Parse(response);
             foreach (var release in releases.RootElement.EnumerateArray())
             {
                 var isPrerelease = release.GetProperty("prerelease").GetBoolean();
@@ -636,7 +635,8 @@ public class UpdateService : IUpdateService
                 _logger.Error($"Failed to parse GitHub API JSON response: {jsonEx.Message}");
                 return false;
             }
-            
+            using (releases)
+            {
             var fullCurrentVersion = CurrentVersion;
             _logger.Info($"Comparing with current version: {fullCurrentVersion}");
             
@@ -816,8 +816,9 @@ public class UpdateService : IUpdateService
                     continue; // Переходим к следующему релизу
                 }
             }
-            
+
             return false;
+            } // using (releases)
         }
         catch (Exception ex)
         {

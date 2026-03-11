@@ -22,17 +22,17 @@ public class RevealService
 
     public void SetApiKey(string apiKey)
     {
-        _riotApiKey = apiKey;
+        _riotApiKey = apiKey?.Trim() ?? string.Empty;
         _httpClient.DefaultRequestHeaders.Clear();
-        if (!string.IsNullOrEmpty(apiKey))
+        if (!string.IsNullOrEmpty(_riotApiKey))
         {
-            _httpClient.DefaultRequestHeaders.Add("X-Riot-Token", apiKey);
+            _httpClient.DefaultRequestHeaders.Add("X-Riot-Token", _riotApiKey);
         }
     }
 
     public void SetRegion(string region)
     {
-        _selectedRegion = region;
+        _selectedRegion = (region ?? string.Empty).Trim().ToLowerInvariant();
     }
 
     public void SetApiConfiguration(string apiKey, string region)
@@ -41,10 +41,10 @@ public class RevealService
         SetRegion(region);
     }
 
-    public async Task<bool> TestApiKeyAsync()
+    public async Task<(bool IsValid, string Message)> TestApiKeyAsync()
     {
         if (string.IsNullOrWhiteSpace(_riotApiKey))
-            return false;
+            return (false, "API ключ не указан");
 
         try
         {
@@ -64,7 +64,7 @@ public class RevealService
             if (response.StatusCode == System.Net.HttpStatusCode.OK)
             {
                 _logger.Info("API key is valid - got successful response");
-                return true;
+                return (true, $"Подключение успешно ({_selectedRegion.ToUpperInvariant()})");
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
             {
@@ -76,20 +76,23 @@ public class RevealService
                 _logger.Info($"Alternative test response: {altResponse.StatusCode}");
                 
                 // Даже 404 означает что ключ работает
-                return altResponse.StatusCode != System.Net.HttpStatusCode.Unauthorized && 
-                       altResponse.StatusCode != System.Net.HttpStatusCode.Forbidden;
+                var ok = altResponse.StatusCode != System.Net.HttpStatusCode.Unauthorized &&
+                         altResponse.StatusCode != System.Net.HttpStatusCode.Forbidden;
+                return ok
+                    ? (true, $"Подключение успешно ({_selectedRegion.ToUpperInvariant()})")
+                    : (false, $"API ответ: {(int)altResponse.StatusCode} {altResponse.StatusCode}");
             }
             else
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
                 _logger.Error($"API key validation failed: {response.StatusCode} - {errorContent}");
-                return false;
+                return (false, $"API ответ: {(int)response.StatusCode} {response.StatusCode}");
             }
         }
         catch (Exception ex)
         {
             _logger.Error($"API key test failed: {ex.Message}");
-            return false;
+            return (false, $"Ошибка: {ex.Message}");
         }
     }
 
@@ -174,11 +177,11 @@ public class RevealService
         }
     }
 
-    public async Task<List<PlayerInfo>?> GetTeamInfoAsync()
+    public async Task<(List<PlayerInfo> Allies, List<PlayerInfo> Enemies)?> GetTeamsInfoAsync()
     {
         try
         {
-            _logger.Info("Starting GetTeamInfoAsync...");
+            _logger.Info("Starting GetTeamsInfoAsync...");
             
             // Получаем информацию о текущей сессии чемпионского селекта
             var champSelectData = await _riotClientService.GetAsync("/lol-champ-select/v1/session");
@@ -190,85 +193,200 @@ public class RevealService
 
             _logger.Info($"Champ select data received: {champSelectData.Length} characters");
             
-            var champSelectJson = JsonDocument.Parse(champSelectData);
+            using var champSelectJson = JsonDocument.Parse(champSelectData);
             if (!champSelectJson.RootElement.TryGetProperty("myTeam", out var myTeam))
             {
                 _logger.Info("No myTeam property in champ select data");
                 return null;
             }
+            var allies = await BuildTeamInfoAsync(myTeam, "myTeam");
 
-            var teamInfo = new List<PlayerInfo>();
-            var teamArray = myTeam.EnumerateArray().ToList();
-            _logger.Info($"Found {teamArray.Count} players in myTeam");
-            
-            foreach (var player in teamArray)
+            List<PlayerInfo> enemies;
+            if (champSelectJson.RootElement.TryGetProperty("theirTeam", out var theirTeam))
             {
-                _logger.Info($"Processing player: {player}");
-                
-                var playerInfo = new PlayerInfo();
-                
-                // Получаем имя игрока напрямую из чемп селекта (работает даже для скрытых!)
-                string gameName = "";
-                string tagLine = "";
-                
-                if (player.TryGetProperty("gameName", out var gameNameElement))
-                {
-                    gameName = gameNameElement.GetString() ?? "";
-                }
-                
-                if (player.TryGetProperty("tagLine", out var tagLineElement))
-                {
-                    tagLine = tagLineElement.GetString() ?? "";
-                }
-                
-                if (!string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(tagLine))
-                {
-                    playerInfo.Name = $"{gameName}#{tagLine}";
-                    _logger.Info($"Player Riot ID from champ select: {playerInfo.Name}");
-                }
-                else
-                {
-                    _logger.Warning("No gameName/tagLine in player data");
-                    continue;
-                }
-                
-                // Получаем выбранного чемпиона если есть
-                if (player.TryGetProperty("championId", out var championIdElement))
-                {
-                    var championId = championIdElement.GetInt32();
-                    if (championId > 0)
-                    {
-                        playerInfo.Champion = $"Champion {championId}";
-                        _logger.Info($"Champion ID: {championId}");
-                    }
-                }
-
-                // Получаем рейтинговую информацию через Riot API если есть ключ
-                if (!string.IsNullOrEmpty(_riotApiKey) && !string.IsNullOrEmpty(playerInfo.Name))
-                {
-                    _logger.Info($"Fetching ranked info for {playerInfo.Name}...");
-                    await FillRankedInfoByPuuidAsync(playerInfo, "");
-                }
-                else
-                {
-                    _logger.Info($"Skipping ranked info - API key: {!string.IsNullOrEmpty(_riotApiKey)}, Name: '{playerInfo.Name}'");
-                }
-
-                playerInfo.UggLink = GenerateUggLink(playerInfo.Name);
-                _logger.Info($"Generated U.GG link: {playerInfo.UggLink}");
-                
-                teamInfo.Add(playerInfo);
+                enemies = await BuildTeamInfoAsync(theirTeam, "theirTeam");
+            }
+            else
+            {
+                _logger.Info("No theirTeam property in champ select data");
+                enemies = new List<PlayerInfo>();
             }
 
-            _logger.Info($"Returning {teamInfo.Count} players");
-            return teamInfo;
+            _logger.Info($"Returning {allies.Count} allies and {enemies.Count} enemies");
+            return (allies, enemies);
         }
         catch (Exception ex)
         {
-            _logger.Error($"Failed to get team info: {ex.Message}");
+            _logger.Error($"Failed to get teams info: {ex.Message}");
             _logger.Error($"Stack trace: {ex.StackTrace}");
             return null;
         }
+    }
+
+    private async Task<List<PlayerInfo>> BuildTeamInfoAsync(JsonElement teamElement, string label)
+    {
+        var teamInfo = new List<PlayerInfo>();
+        var teamArray = teamElement.EnumerateArray().ToList();
+        _logger.Info($"Found {teamArray.Count} players in {label}");
+
+        foreach (var player in teamArray)
+        {
+            _logger.Info($"Processing {label} player: {player}");
+
+            var playerInfo = new PlayerInfo();
+
+            string gameName = "";
+            string tagLine = "";
+            long summonerId = 0;
+            string puuid = "";
+
+            if (player.TryGetProperty("gameName", out var gameNameElement))
+            {
+                gameName = gameNameElement.GetString() ?? "";
+            }
+
+            if (player.TryGetProperty("tagLine", out var tagLineElement))
+            {
+                tagLine = tagLineElement.GetString() ?? "";
+            }
+
+            if (player.TryGetProperty("summonerId", out var summonerIdElement) && summonerIdElement.ValueKind == JsonValueKind.Number)
+            {
+                summonerId = summonerIdElement.GetInt64();
+            }
+
+            if (player.TryGetProperty("puuid", out var puuidElement))
+            {
+                puuid = puuidElement.GetString() ?? "";
+            }
+
+            if (!string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(tagLine))
+            {
+                playerInfo.Name = $"{gameName}#{tagLine}";
+                _logger.Info($"Player Riot ID from champ select: {playerInfo.Name}");
+            }
+            else
+            {
+                var resolvedName = await TryResolveRiotIdFromLcuAsync(summonerId, puuid);
+                if (!string.IsNullOrEmpty(resolvedName))
+                {
+                    playerInfo.Name = resolvedName;
+                    _logger.Info($"Player Riot ID from LCU: {playerInfo.Name}");
+                }
+                else
+                {
+                    _logger.Warning($"No gameName/tagLine in {label} player data");
+                    playerInfo.Name = "Скрыт";
+                }
+            }
+
+            if (player.TryGetProperty("championId", out var championIdElement))
+            {
+                var championId = championIdElement.GetInt32();
+                if (championId > 0)
+                {
+                    playerInfo.Champion = $"Champion {championId}";
+                    _logger.Info($"Champion ID: {championId}");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(_riotApiKey) && !string.IsNullOrEmpty(playerInfo.Name))
+            {
+                _logger.Info($"Fetching ranked info for {playerInfo.Name}...");
+                await FillRankedInfoByPuuidAsync(playerInfo, "");
+            }
+            else
+            {
+                _logger.Info($"Skipping ranked info - API key: {!string.IsNullOrEmpty(_riotApiKey)}, Name: '{playerInfo.Name}'");
+            }
+
+            if (!string.IsNullOrEmpty(playerInfo.Name) && playerInfo.Name != "Скрыт")
+            {
+                playerInfo.UggLink = GenerateUggLink(playerInfo.Name);
+                _logger.Info($"Generated U.GG link: {playerInfo.UggLink}");
+            }
+
+            teamInfo.Add(playerInfo);
+        }
+
+        return teamInfo;
+    }
+
+    private async Task<string?> TryResolveRiotIdFromLcuAsync(long summonerId, string puuid)
+    {
+        var endpoints = new List<string>();
+
+        if (summonerId > 0)
+        {
+            endpoints.Add($"/lol-summoner/v1/summoners/{summonerId}");
+            endpoints.Add($"/lol-summoner/v2/summoners/{summonerId}");
+        }
+
+        if (!string.IsNullOrEmpty(puuid))
+        {
+            endpoints.Add($"/lol-summoner/v1/summoners/by-puuid/{Uri.EscapeDataString(puuid)}");
+            endpoints.Add($"/lol-summoner/v2/summoners/by-puuid/{Uri.EscapeDataString(puuid)}");
+        }
+
+        foreach (var endpoint in endpoints.Distinct())
+        {
+            var response = await _riotClientService.GetAsync(endpoint);
+            if (string.IsNullOrEmpty(response)) continue;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(response);
+                if (TryExtractRiotId(doc.RootElement, out var riotId))
+                {
+                    return riotId;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning($"Failed to parse LCU summoner response: {ex.Message}");
+            }
+        }
+
+        return null;
+    }
+
+    private static bool TryExtractRiotId(JsonElement root, out string riotId)
+    {
+        riotId = string.Empty;
+
+        if (root.TryGetProperty("gameName", out var gameNameElement) &&
+            root.TryGetProperty("tagLine", out var tagLineElement))
+        {
+            var gameName = gameNameElement.GetString() ?? "";
+            var tagLine = tagLineElement.GetString() ?? "";
+            if (!string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(tagLine))
+            {
+                riotId = $"{gameName}#{tagLine}";
+                return true;
+            }
+        }
+
+        if (root.TryGetProperty("displayName", out var displayNameElement))
+        {
+            var displayName = displayNameElement.GetString() ?? "";
+            if (!string.IsNullOrEmpty(displayName))
+            {
+                riotId = displayName;
+                return true;
+            }
+        }
+
+        if (root.TryGetProperty("summonerName", out var summonerNameElement))
+        {
+            var summonerName = summonerNameElement.GetString() ?? "";
+            if (!string.IsNullOrEmpty(summonerName))
+            {
+                riotId = summonerName;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private async Task FillRankedInfoAsync(PlayerInfo playerInfo)
@@ -308,22 +426,22 @@ public class RevealService
             
             _logger.Info($"Account API response: {accountResponse}");
             
-            var accountJson = JsonDocument.Parse(accountResponse);
+            using var accountJson = JsonDocument.Parse(accountResponse);
             if (!accountJson.RootElement.TryGetProperty("puuid", out var puuidElement))
             {
                 _logger.Warning($"No 'puuid' property in account response for {playerInfo.Name}");
                 return;
             }
-            
+
             var puuid = puuidElement.GetString();
             if (string.IsNullOrEmpty(puuid))
             {
                 _logger.Warning($"Empty PUUID for {playerInfo.Name}");
                 return;
             }
-            
+
             _logger.Info($"PUUID for {playerInfo.Name}: {puuid}");
-            
+
             // Получаем summoner по PUUID
             var summonerResponse = await GetSummonerByPuuidAsync(puuid);
             if (summonerResponse == null)
@@ -331,21 +449,21 @@ public class RevealService
                 _logger.Warning($"No summoner response for PUUID {puuid}");
                 return;
             }
-            
-            var summonerJson = JsonDocument.Parse(summonerResponse);
+
+            using var summonerJson = JsonDocument.Parse(summonerResponse);
             if (!summonerJson.RootElement.TryGetProperty("id", out var idElement))
             {
                 _logger.Warning($"No 'id' property in summoner response for {playerInfo.Name}");
                 return;
             }
-            
+
             var summonerId = idElement.GetString();
             if (string.IsNullOrEmpty(summonerId))
             {
                 _logger.Warning($"Empty summoner ID for {playerInfo.Name}");
                 return;
             }
-            
+
             _logger.Info($"Summoner ID for {playerInfo.Name}: {summonerId}");
 
             // Получаем рейтинговую статистику
@@ -357,8 +475,8 @@ public class RevealService
             }
 
             _logger.Info($"Ranked API response for {playerInfo.Name}: {rankedResponse}");
-            
-            var rankedArray = JsonDocument.Parse(rankedResponse);
+
+            using var rankedArray = JsonDocument.Parse(rankedResponse);
             
             bool foundRankedData = false;
             
@@ -454,13 +572,13 @@ public class RevealService
 
             _logger.Info($"Account API response: {accountResponse}");
             
-            var accountJson = JsonDocument.Parse(accountResponse);
+            using var accountJson = JsonDocument.Parse(accountResponse);
             if (!accountJson.RootElement.TryGetProperty("puuid", out var puuidElement))
             {
                 _logger.Warning($"No 'puuid' property in account response for {playerInfo.Name}");
                 return;
             }
-            
+
             var riotApiPuuid = puuidElement.GetString();
             if (string.IsNullOrEmpty(riotApiPuuid))
             {
@@ -479,15 +597,15 @@ public class RevealService
             }
 
             _logger.Info($"Ranked API response for {playerInfo.Name}: {rankedResponse}");
-            
-            var rankedArray = JsonDocument.Parse(rankedResponse);
-            
+
+            using var rankedArray = JsonDocument.Parse(rankedResponse);
+
             bool foundRankedData = false;
-            
+
             // Ищем Solo/Duo рейтинг
             foreach (var entry in rankedArray.RootElement.EnumerateArray())
             {
-                if (entry.TryGetProperty("queueType", out var queueType) && 
+                if (entry.TryGetProperty("queueType", out var queueType) &&
                     queueType.GetString() == "RANKED_SOLO_5x5")
                 {
                     _logger.Info($"Found RANKED_SOLO_5x5 data for {playerInfo.Name}");
